@@ -58,9 +58,9 @@ export default function FechamentoMensalPage() {
 
   // Unidade alvo da edição
   const targetUnitId =
-    currentUser.role === "admin" && selectedUnitId !== "all"
+    currentUser?.role === "admin" && selectedUnitId !== "all"
       ? selectedUnitId
-      : currentUser.unit_id || "11111111-1111-1111-1111-111111111111";
+      : currentUser?.unit_id || "11111111-1111-1111-1111-111111111111";
 
   const targetUnit = units.find((u) => u.id === targetUnitId);
 
@@ -104,7 +104,7 @@ export default function FechamentoMensalPage() {
       dispensing_administrative_patients: Number(afsesabPatients),
       first_dispensing_by_pharmacist: Number(firstDispensing),
       total_new_patients_month: Number(totalNewPatients),
-      updated_by: currentUser.id,
+      updated_by: currentUser?.id,
     });
 
     setSavedSuccess(true);

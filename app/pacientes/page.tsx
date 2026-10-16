@@ -89,20 +89,22 @@ export default function PacientesPage() {
       alert("Preencha Nome e CPF.");
       return;
     }
-    if (!currentUser.unit_id) {
-      alert("Usuário sem unidade vinculada.");
+    const targetUnitId =
+      currentUser?.unit_id || (selectedUnitId !== "all" ? selectedUnitId : null);
+    if (!targetUnitId) {
+      alert("Selecione uma unidade no cabeçalho para vincular o cadastro do paciente.");
       return;
     }
 
     addPatient({
-      unit_id: currentUser.unit_id,
+      unit_id: targetUnitId,
       full_name: fullName.trim(),
       cpf: cpf.trim(),
       cns: cns.trim() || undefined,
       birth_date: birthDate || undefined,
       phone: phone.trim() || undefined,
       status: status,
-      created_by: currentUser.id,
+      created_by: currentUser?.id,
     });
 
     setIsNewPatientOpen(false);

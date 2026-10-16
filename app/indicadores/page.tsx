@@ -11,15 +11,6 @@ import {
   AlertTriangle,
   Stethoscope,
   Filter,
-  Layers,
-  Info,
-  Database,
-  RefreshCw,
-  Trash2,
-  HelpCircle,
-  ArrowRight,
-  ClipboardCheck,
-  Building2,
 } from "lucide-react";
 import { useApp } from "@/lib/context/AppContext";
 import { calculateIndicators } from "@/lib/indicators";
@@ -63,17 +54,11 @@ export default function IndicadoresPage() {
     monthlyData,
     selectedUnitId,
     setSelectedUnitId,
-    clearSimulatedData,
-    restoreDemoData,
-    isSupabaseOnline,
-    isSyncing,
-    refreshFromSupabase,
   } = useApp();
 
   const [selectedMacroregion, setSelectedMacroregion] = useState<string>("all");
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [selectedMonth, setSelectedMonth] = useState<number>(10); // Outubro 2026 default
-  const [showExplanation, setShowExplanation] = useState<boolean>(true);
 
   // Lista de macrorregionais únicas
   const macroregions = useMemo(() => {
@@ -103,39 +88,6 @@ export default function IndicadoresPage() {
     selectedYear,
     selectedMonth,
   ]);
-
-  // Auditoria dos Dados no Período Selecionado
-  const auditStats = useMemo(() => {
-    const periodConsults = consultations.filter((c) => {
-      if (selectedUnitId !== "all" && c.unit_id !== selectedUnitId) return false;
-      const cDate = new Date(c.consultation_date);
-      if (cDate.getUTCFullYear() !== selectedYear) return false;
-      if (selectedMonth !== 0 && cDate.getUTCMonth() + 1 !== selectedMonth) return false;
-      return true;
-    });
-
-    const activePatientsInUnit = patients.filter((p) => {
-      if (selectedUnitId !== "all" && p.unit_id !== selectedUnitId) return false;
-      return p.status === "em_acompanhamento";
-    });
-
-    const monthlyRecord = monthlyData.find((m) => {
-      if (selectedUnitId !== "all" && m.unit_id !== selectedUnitId) return false;
-      if (m.year !== selectedYear) return false;
-      if (selectedMonth !== 0 && m.month !== selectedMonth) return false;
-      return true;
-    });
-
-    const isDemoData = consultations.some((c) => c.id.startsWith("cons-")) && consultations.length <= 10;
-
-    return {
-      consultationsCount: periodConsults.length,
-      patientsCount: activePatientsInUnit.length,
-      hasMonthlyRecord: Boolean(monthlyRecord),
-      monthlyRecord,
-      isDemoData,
-    };
-  }, [consultations, patients, monthlyData, selectedUnitId, selectedYear, selectedMonth]);
 
   // Dados para gráficos Recharts
   const prfStatusData = useMemo(() => {
@@ -249,182 +201,7 @@ export default function IndicadoresPage() {
         </div>
       </div>
 
-      {/* PAINEL DE RASTREABILIDADE E ORIGEM DOS DADOS (O QUE É REAL VS O QUE É SIMULADO) */}
-      <div className="no-print p-4 rounded-lg bg-white border border-[#E5E7EB] shadow-xs space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Database className="w-4 h-4 text-[#171A20]" />
-            <span className="text-xs font-bold uppercase tracking-wider text-[#171A20]">
-              Auditoria da Base de Dados da Competência
-            </span>
-            {auditStats.isDemoData ? (
-              <Badge variant="warning" className="text-[10px] py-0">
-                Amostras Demonstrativas Ativas
-              </Badge>
-            ) : (
-              <Badge variant="success" className="text-[10px] py-0">
-                Base Real de Produção
-              </Badge>
-            )}
-            {isSupabaseOnline ? (
-              <Badge variant="outline" className="text-[10px] py-0 border-emerald-300 text-emerald-800 bg-emerald-50 flex items-center">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-pulse" />
-                Supabase Nuvem Ativo
-              </Badge>
-            ) : null}
-          </div>
 
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refreshFromSupabase()}
-              disabled={isSyncing}
-              className="text-[11px] h-7 px-2 border-[#D1D5DB] text-[#171A20] hover:bg-[#F4F4F4]"
-            >
-              <RefreshCw className={`w-3 h-3 mr-1 ${isSyncing ? "animate-spin" : ""}`} />
-              {isSyncing ? "Sincronizando..." : "Sincronizar Supabase"}
-            </Button>
-            <button
-              onClick={() => setShowExplanation(!showExplanation)}
-              className="text-xs text-[#5C5E62] hover:text-[#171A20] flex items-center gap-1 underline cursor-pointer"
-            >
-              <HelpCircle className="w-3.5 h-3.5" />
-              {showExplanation ? "Ocultar Guia das Fontes" : "Como estes dados são apurados?"}
-            </button>
-            <span className="text-[#D1D5DB]">|</span>
-            {auditStats.isDemoData ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  if (confirm("Deseja zerar os dados de demonstração para começar com uma base limpa de produção real?")) {
-                    clearSimulatedData();
-                  }
-                }}
-                className="text-[11px] h-7 px-2 border-red-200 text-red-700 hover:bg-red-50"
-              >
-                <Trash2 className="w-3 h-3 mr-1" />
-                Limpar Amostras (Iniciar Base Real)
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  if (confirm("Deseja recarregar os dados de exemplo para demonstração?")) {
-                    restoreDemoData();
-                  }
-                }}
-                className="text-[11px] h-7 px-2 border-blue-200 text-blue-700 hover:bg-blue-50"
-              >
-                <RefreshCw className="w-3 h-3 mr-1" />
-                Restaurar Amostras de Teste
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* 3 Colunas de Diagnóstico dos Dados */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-[#F4F4F6] text-xs">
-          {/* Card 1: Consultas no Prontuário */}
-          <div className="p-3 bg-[#F9FAFB] rounded border border-[#E5E7EB]">
-            <div className="flex items-center justify-between text-[#5C5E62] mb-1">
-              <span className="font-semibold text-[11px] uppercase">
-                1. Prontuários no Período
-              </span>
-              <span className="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded font-bold">
-                IND-02 a 08
-              </span>
-            </div>
-            <div className="text-xl font-bold text-[#171A20]">
-              {auditStats.consultationsCount} {auditStats.consultationsCount === 1 ? "consulta" : "consultas"}
-            </div>
-            <p className="text-[11px] text-[#5C5E62] mt-1">
-              {auditStats.consultationsCount > 0 ? (
-                <span className="text-emerald-700 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3 shrink-0" />
-                  Alimentando métricas clínicas em tempo real.
-                </span>
-              ) : (
-                <span className="text-amber-700 flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3 shrink-0" />
-                  Nenhuma consulta gravada nesta competência.
-                </span>
-              )}
-            </p>
-          </div>
-
-          {/* Card 2: Fechamento Mensal AFSESAB */}
-          <div className="p-3 bg-[#F9FAFB] rounded border border-[#E5E7EB]">
-            <div className="flex items-center justify-between text-[#5C5E62] mb-1">
-              <span className="font-semibold text-[11px] uppercase">
-                2. Fechamento AFSESAB
-              </span>
-              <span className="text-[10px] bg-purple-100 text-purple-800 px-1.5 py-0.2 rounded font-bold">
-                IND-01, 09, 10, 11
-              </span>
-            </div>
-            <div className="text-xl font-bold text-[#171A20]">
-              {auditStats.hasMonthlyRecord ? "Preenchido" : "Pendente"}
-            </div>
-            <div className="text-[11px] mt-1">
-              {auditStats.hasMonthlyRecord ? (
-                <span className="text-emerald-700">
-                  {auditStats.monthlyRecord?.dispensing_administrative_patients} atendidos no balcão da farmácia.
-                </span>
-              ) : (
-                <Link
-                  href="/fechamento-mensal"
-                  className="text-[#E82127] font-semibold hover:underline flex items-center gap-1"
-                >
-                  Informar dados em Fechamento Mensal
-                  <ArrowRight className="w-3 h-3" />
-                </Link>
-              )}
-            </div>
-          </div>
-
-          {/* Card 3: Pacientes em Acompanhamento */}
-          <div className="p-3 bg-[#F9FAFB] rounded border border-[#E5E7EB]">
-            <div className="flex items-center justify-between text-[#5C5E62] mb-1">
-              <span className="font-semibold text-[11px] uppercase">
-                3. Carteira da Unidade
-              </span>
-              <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-bold">
-                Cadastros Ativos
-              </span>
-            </div>
-            <div className="text-xl font-bold text-[#171A20]">
-              {auditStats.patientsCount} pacientes
-            </div>
-            <p className="text-[11px] text-[#5C5E62] mt-1">
-              Vinculados à base de saúde selecionada.
-            </p>
-          </div>
-        </div>
-
-        {/* Guia explicativo expansível */}
-        {showExplanation && (
-          <div className="p-3 bg-blue-50/60 border border-blue-200 rounded text-xs text-blue-950 space-y-1.5 leading-relaxed">
-            <div className="font-bold flex items-center gap-1.5 text-blue-900">
-              <Info className="w-4 h-4 text-blue-700" />
-              Como funciona a apuração oficial no PharmaCare:
-            </div>
-            <ul className="list-disc list-inside space-y-1 text-blue-900 text-[11px]">
-              <li>
-                <strong>Indicadores de Prontuário Clínico (IND-02 ao IND-08):</strong> São extraídos instantaneamente dos atendimentos que os farmacêuticos registram em <em>Novo Atendimento</em>. Cada desfecho, PRF e intervenção alimenta o numerador e denominador.
-              </li>
-              <li>
-                <strong>Indicadores Administrativos (IND-01, IND-09, IND-10 e IND-11):</strong> Dependem dos dados consolidados no fechamento mensal (extraídos dos relatórios de dispensação AFSESAB da unidade física).
-              </li>
-              <li>
-                <strong>Dados de Demonstração:</strong> O sistema vem carregado com consultas e fechamentos de exemplo para que você possa avaliar a interface. Ao clicar em <em>&quot;Limpar Amostras&quot;</em>, você começa a ver apenas o resultado real inserido por você e pela sua equipe.
-              </li>
-            </ul>
-          </div>
-        )}
-      </div>
 
       {/* Filter Toolbar */}
       <Card className="no-print border-[#E5E7EB] bg-white">

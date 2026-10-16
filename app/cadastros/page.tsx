@@ -23,6 +23,12 @@ import {
   ExternalLink,
   Layers,
   Sparkles,
+  Pencil,
+  EyeOff,
+  Eye,
+  RotateCcw,
+  Check,
+  AlertTriangle,
 } from "lucide-react";
 import { useApp } from "@/lib/context/AppContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -43,20 +49,61 @@ export default function CadastrosPage() {
     currentUser,
     canManageCatalogs,
     addCID,
+    updateCID,
+    toggleCIDActive,
     addMedication,
+    updateMedication,
+    toggleMedicationActive,
     importSIGTAPData,
-    resetCatalogsToOfficialCEAF,
   } = useApp();
 
-  const isAdmin = currentUser.role === "admin";
+  const isAdmin = currentUser?.role === "admin";
 
   const [activeTab, setActiveTab] = useState<"medications" | "cids">("medications");
   const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
 
   // Modais de Cadastro
   const [isMedModalOpen, setIsMedModalOpen] = useState(false);
   const [isCidModalOpen, setIsCidModalOpen] = useState(false);
   const [isSigtapModalOpen, setIsSigtapModalOpen] = useState(false);
+
+  // Estados Edição Medicamento
+  const [isEditMedModalOpen, setIsEditMedModalOpen] = useState(false);
+  const [editMedId, setEditMedId] = useState("");
+  const [editMedName, setEditMedName] = useState("");
+  const [editMedForm, setEditMedForm] = useState("");
+  const [editMedSigtapCode, setEditMedSigtapCode] = useState("");
+  const [editMedPcdts, setEditMedPcdts] = useState("");
+  const [editMedActive, setEditMedActive] = useState(true);
+  const [editMedLoading, setEditMedLoading] = useState(false);
+  const [editMedError, setEditMedError] = useState("");
+  const [editMedSuccess, setEditMedSuccess] = useState("");
+
+  // Estados Edição CID / PCDT
+  const [isEditCidModalOpen, setIsEditCidModalOpen] = useState(false);
+  const [editCidId, setEditCidId] = useState("");
+  const [editCidCode, setEditCidCode] = useState("");
+  const [editCidDesc, setEditCidDesc] = useState("");
+  const [editCidActive, setEditCidActive] = useState(true);
+  const [editCidLoading, setEditCidLoading] = useState(false);
+  const [editCidError, setEditCidError] = useState("");
+  const [editCidSuccess, setEditCidSuccess] = useState("");
+
+  // Estado Modal Confirmação Soft Delete
+  const [confirmSoftDeleteModal, setConfirmSoftDeleteModal] = useState<{
+    open: boolean;
+    type: "medication" | "cid";
+    id: string;
+    title: string;
+    targetActiveState: boolean;
+  }>({
+    open: false,
+    type: "medication",
+    id: "",
+    title: "",
+    targetActiveState: false,
+  });
 
   // Sub-abas do Modal de Importação SIGTAP
   const [importMode, setImportMode] = useState<"datasus_files" | "csv_quick" | "manual_guide">(
@@ -89,9 +136,18 @@ export default function CadastrosPage() {
     message: string;
   }>({ type: null, message: "" });
 
-  // Filtragem de medicamentos (Exclusivo CEAF)
+  // Contagens para filtros
+  const activeMedsCount = useMemo(() => medications.filter((m) => m.active !== false).length, [medications]);
+  const inactiveMedsCount = useMemo(() => medications.filter((m) => m.active === false).length, [medications]);
+  const activeCidsCount = useMemo(() => cids.filter((c) => c.active !== false).length, [cids]);
+  const inactiveCidsCount = useMemo(() => cids.filter((c) => c.active === false).length, [cids]);
+
+  // Filtragem de medicamentos (Exclusivo CEAF + Status)
   const filteredMeds = useMemo(() => {
     return medications.filter((m) => {
+      if (statusFilter === "active" && m.active === false) return false;
+      if (statusFilter === "inactive" && m.active !== false) return false;
+
       const term = searchTerm.toLowerCase();
       return (
         m.name.toLowerCase().includes(term) ||
@@ -99,26 +155,29 @@ export default function CadastrosPage() {
         (m.pharmaceutical_form && m.pharmaceutical_form.toLowerCase().includes(term))
       );
     });
-  }, [medications, searchTerm]);
+  }, [medications, searchTerm, statusFilter]);
 
-  // Filtragem de CIDs
+  // Filtragem de CIDs (PCDTs + Status)
   const filteredCids = useMemo(() => {
     return cids.filter((c) => {
+      if (statusFilter === "active" && c.active === false) return false;
+      if (statusFilter === "inactive" && c.active !== false) return false;
+
       const term = searchTerm.toLowerCase();
       return (
         c.code.toLowerCase().includes(term) ||
         c.description.toLowerCase().includes(term)
       );
     });
-  }, [cids, searchTerm]);
+  }, [cids, searchTerm, statusFilter]);
 
-  const handleSaveMedication = (e: React.FormEvent) => {
+  const handleSaveMedication = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdmin) return;
     if (!medName.trim()) return;
 
     try {
-      addMedication({
+      await addMedication({
         name: medName.trim(),
         sigtap_code: medSigtapCode.trim() || undefined,
         pharmaceutical_form: medForm.trim() || undefined,
@@ -135,13 +194,13 @@ export default function CadastrosPage() {
     }
   };
 
-  const handleSaveCID = (e: React.FormEvent) => {
+  const handleSaveCID = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdmin) return;
     if (!cidCode.trim() || !cidDesc.trim()) return;
 
     try {
-      addCID({
+      await addCID({
         code: cidCode.trim().toUpperCase(),
         description: cidDesc.trim(),
         active: true,
@@ -152,6 +211,124 @@ export default function CadastrosPage() {
       setCidDesc("");
     } catch (err: any) {
       alert(err.message || "Erro ao salvar CID-10.");
+    }
+  };
+
+  // Handlers Edição Medicamento
+  const handleOpenEditMed = (med: Medication) => {
+    setEditMedId(med.id);
+    setEditMedName(med.name);
+    setEditMedForm(med.pharmaceutical_form || "");
+    setEditMedSigtapCode(med.sigtap_code || "");
+    setEditMedPcdts((med.compatible_cid_codes || []).join(", "));
+    setEditMedActive(med.active !== false);
+    setEditMedError("");
+    setEditMedSuccess("");
+    setIsEditMedModalOpen(true);
+  };
+
+  const handleUpdateMedication = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin || !editMedId) return;
+    if (!editMedName.trim()) {
+      setEditMedError("A denominação do fármaco / concentração é obrigatória.");
+      return;
+    }
+
+    setEditMedLoading(true);
+    setEditMedError("");
+    setEditMedSuccess("");
+
+    try {
+      const pcdtsList = editMedPcdts
+        .split(",")
+        .map((c) => c.trim().toUpperCase())
+        .filter(Boolean);
+
+      const res = await updateMedication(editMedId, {
+        name: editMedName.trim(),
+        sigtap_code: editMedSigtapCode.trim() || undefined,
+        pharmaceutical_form: editMedForm.trim() || undefined,
+        active: editMedActive,
+        compatible_cid_codes: pcdtsList,
+      });
+
+      if (!res.success) {
+        setEditMedError(res.error || "Erro ao atualizar medicamento.");
+      } else {
+        setEditMedSuccess("Medicamento atualizado com sucesso no Supabase!");
+        setTimeout(() => {
+          setIsEditMedModalOpen(false);
+          setEditMedSuccess("");
+        }, 600);
+      }
+    } catch (err: any) {
+      setEditMedError(err.message || "Erro ao atualizar medicamento.");
+    } finally {
+      setEditMedLoading(false);
+    }
+  };
+
+  // Handlers Edição CID-10 / PCDT
+  const handleOpenEditCid = (cid: CID) => {
+    setEditCidId(cid.id);
+    setEditCidCode(cid.code);
+    setEditCidDesc(cid.description);
+    setEditCidActive(cid.active !== false);
+    setEditCidError("");
+    setEditCidSuccess("");
+    setIsEditCidModalOpen(true);
+  };
+
+  const handleUpdateCid = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin || !editCidId) return;
+    if (!editCidCode.trim() || !editCidDesc.trim()) {
+      setEditCidError("Código CID-10 e descrição oficial são obrigatórios.");
+      return;
+    }
+
+    setEditCidLoading(true);
+    setEditCidError("");
+    setEditCidSuccess("");
+
+    try {
+      const res = await updateCID(editCidId, {
+        code: editCidCode.trim().toUpperCase(),
+        description: editCidDesc.trim(),
+        active: editCidActive,
+      });
+
+      if (!res.success) {
+        setEditCidError(res.error || "Erro ao atualizar CID-10.");
+      } else {
+        setEditCidSuccess("Diagnóstico PCDT / CID-10 atualizado com sucesso no Supabase!");
+        setTimeout(() => {
+          setIsEditCidModalOpen(false);
+          setEditCidSuccess("");
+        }, 600);
+      }
+    } catch (err: any) {
+      setEditCidError(err.message || "Erro ao atualizar CID-10.");
+    } finally {
+      setEditCidLoading(false);
+    }
+  };
+
+  // Confirmação de Soft Delete (Inativação / Reativação sem Hard Delete)
+  const handleExecuteSoftDelete = async () => {
+    const { type, id, targetActiveState } = confirmSoftDeleteModal;
+    if (!id) return;
+
+    try {
+      if (type === "medication") {
+        await toggleMedicationActive(id, targetActiveState);
+      } else {
+        await toggleCIDActive(id, targetActiveState);
+      }
+      setConfirmSoftDeleteModal((prev) => ({ ...prev, open: false }));
+    } catch (err: any) {
+      alert("Erro ao alterar status operacional: " + (err.message || "Falha"));
     }
   };
 
@@ -335,7 +512,7 @@ export default function CadastrosPage() {
           <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
           <div className="leading-relaxed">
             <span className="font-semibold text-amber-950">
-              Perfil Atual: Farmacêutico ({currentUser.full_name}) · Modo Consulta.
+              Perfil Atual: Farmacêutico ({currentUser?.full_name || "Usuário"}) · Modo Consulta.
             </span>
             <span className="block text-amber-800 mt-0.5">
               O catálogo de medicamentos e CIDs do CEAF (SIGTAP) é gerenciado centralmente pelo <strong>Administrador do Sistema</strong> para assegurar conformidade com os PCDTs estaduais. Você tem permissão de leitura total para selecionar diagnósticos e fármacos nos atendimentos clínicos.
@@ -348,27 +525,17 @@ export default function CadastrosPage() {
             <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
             <div className="leading-relaxed">
               <span className="font-semibold text-emerald-950">
-                Perfil Atual: Administrador ({currentUser.full_name}) · Gestão Ativa de Catálogo.
+                Perfil Atual: Administrador ({currentUser?.full_name || "Administrador"}) · Gestão Ativa de Catálogo.
               </span>
               <span className="block text-emerald-800 mt-0.5">
                 Você tem permissão para cadastrar medicamentos, CIDs e realizar a incorporação em lote de arquivos da tabela SIGTAP do DataSUS para todo o estado.
               </span>
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (confirm("Deseja recarregar o catálogo padrão oficial do CEAF (34 medicamentos e 22 CIDs de PCDTs)?")) {
-                resetCatalogsToOfficialCEAF();
-                alert("Catálogo oficial do CEAF restaurado com sucesso!");
-              }
-            }}
-            className="text-[11px] h-7 px-2 shrink-0 border-emerald-300 bg-white hover:bg-emerald-100 text-emerald-900"
-          >
-            <RefreshCw className="w-3 h-3 mr-1 text-emerald-700" />
-            Recarregar Base Oficial CEAF
-          </Button>
+          <div className="flex items-center gap-1.5 text-xs text-emerald-900 bg-emerald-100/90 px-3 py-1.5 rounded border border-emerald-300 shadow-xs shrink-0">
+            <Database className="w-3.5 h-3.5 text-emerald-700" />
+            <span className="font-semibold">Catálogo Sincronizado com Supabase</span>
+          </div>
         </div>
       )}
 
@@ -407,19 +574,59 @@ export default function CadastrosPage() {
         </button>
       </div>
 
-      {/* Search Input */}
-      <div className="relative max-w-md">
-        <Input
-          placeholder={
-            activeTab === "medications"
-              ? "Filtrar por fármaco, dosagem ou forma farmacêutica..."
-              : "Filtrar por código (ex: G35, K50) ou descrição da patologia..."
-          }
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-9"
-        />
-        <Search className="w-4 h-4 text-[#9CA3AF] absolute left-3 top-2.5 pointer-events-none" />
+      {/* Search Input & Status Filter Bar */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="relative w-full max-w-md">
+          <Input
+            placeholder={
+              activeTab === "medications"
+                ? "Filtrar por fármaco, dosagem ou código SIGTAP..."
+                : "Filtrar por código (ex: G35, K50) ou descrição da patologia..."
+            }
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-9"
+          />
+          <Search className="w-4 h-4 text-[#9CA3AF] absolute left-3 top-2.5 pointer-events-none" />
+        </div>
+
+        {/* Filtros de Status Operacional (Soft Delete) */}
+        <div className="flex items-center gap-1 bg-[#F4F4F6] p-1 rounded-md border border-[#E5E7EB] text-xs shrink-0">
+          <span className="text-[11px] font-medium text-[#5C5E62] px-1.5">Status:</span>
+          <button
+            type="button"
+            onClick={() => setStatusFilter("all")}
+            className={`px-2.5 py-1 rounded text-xs transition-colors ${
+              statusFilter === "all"
+                ? "bg-white text-[#171A20] shadow-2xs font-semibold"
+                : "text-[#5C5E62] hover:text-[#171A20]"
+            }`}
+          >
+            Todos ({activeTab === "medications" ? medications.length : cids.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter("active")}
+            className={`px-2.5 py-1 rounded text-xs transition-colors ${
+              statusFilter === "active"
+                ? "bg-white text-emerald-800 shadow-2xs font-semibold"
+                : "text-[#5C5E62] hover:text-[#171A20]"
+            }`}
+          >
+            Ativos ({activeTab === "medications" ? activeMedsCount : activeCidsCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter("inactive")}
+            className={`px-2.5 py-1 rounded text-xs transition-colors ${
+              statusFilter === "inactive"
+                ? "bg-white text-amber-800 shadow-2xs font-semibold"
+                : "text-[#5C5E62] hover:text-[#171A20]"
+            }`}
+          >
+            Inativos ({activeTab === "medications" ? inactiveMedsCount : inactiveCidsCount})
+          </button>
+        </div>
       </div>
 
       {/* Tabela de Medicamentos */}
@@ -430,24 +637,30 @@ export default function CadastrosPage() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-[#171A20] text-white border-b border-[#282C34]">
-                    <th className="py-2.5 px-4 font-semibold w-32">Código SIGTAP</th>
+                    <th className="py-2.5 px-4 font-semibold w-28">Código SIGTAP</th>
                     <th className="py-2.5 px-4 font-semibold">Fármaco / Concentração (DCB Oficial)</th>
                     <th className="py-2.5 px-4 font-semibold">Forma Farmacêutica</th>
                     <th className="py-2.5 px-4 font-semibold">PCDTs Autorizados (rl_procedimento_cid)</th>
-                    <th className="py-2.5 px-4 font-semibold text-center w-28">Componente</th>
+                    <th className="py-2.5 px-4 font-semibold text-center w-24">Componente</th>
                     <th className="py-2.5 px-4 font-semibold text-center w-20">Status</th>
+                    <th className="py-2.5 px-4 font-semibold text-right w-36">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#E5E7EB] bg-white">
                   {filteredMeds.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-10 text-center text-xs text-[#5C5E62]">
-                        Nenhum medicamento localizado no catálogo do CEAF.
+                      <td colSpan={7} className="py-10 text-center text-xs text-[#5C5E62]">
+                        Nenhum medicamento localizado com os filtros aplicados.
                       </td>
                     </tr>
                   ) : (
                     filteredMeds.map((med) => (
-                      <tr key={med.id} className="hover:bg-[#F9FAFB] transition-colors">
+                      <tr
+                        key={med.id}
+                        className={`hover:bg-[#F9FAFB] transition-colors ${
+                          med.active === false ? "bg-neutral-50/60 opacity-80" : ""
+                        }`}
+                      >
                         <td className="py-3 px-4 font-mono font-semibold text-[#171A20]">
                           {med.sigtap_code ? (
                             <span className="bg-[#F4F4F6] px-2 py-0.5 rounded border border-[#E5E7EB] text-[11px]">
@@ -458,7 +671,14 @@ export default function CadastrosPage() {
                           )}
                         </td>
                         <td className="py-3 px-4 font-semibold text-[#171A20]">
-                          {med.name}
+                          <div className="flex items-center gap-1.5">
+                            <span>{med.name}</span>
+                            {med.active === false && (
+                              <span className="text-[10px] text-amber-700 font-medium bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
+                                Inativo
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-4 text-[#5C5E62]">
                           {med.pharmaceutical_form || "Forma farmacêutica padronizada"}
@@ -490,7 +710,64 @@ export default function CadastrosPage() {
                           </span>
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <Badge variant="success">Ativo</Badge>
+                          {med.active !== false ? (
+                            <Badge variant="success">Ativo</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[#5C5E62] border-[#D1D5DB] bg-[#F4F4F6]">
+                              Inativo
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleOpenEditMed(med)}
+                              disabled={!isAdmin}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-[#171A20] bg-white hover:bg-[#F4F4F6] border border-[#E5E7EB] rounded shadow-2xs transition-colors disabled:opacity-40"
+                              title={isAdmin ? "Editar medicamento e PCDTs" : "Apenas administradores podem editar"}
+                            >
+                              <Pencil className="w-3 h-3 text-[#5C5E62]" />
+                              <span>Editar</span>
+                            </button>
+
+                            {isAdmin && (
+                              med.active !== false ? (
+                                <button
+                                  onClick={() =>
+                                    setConfirmSoftDeleteModal({
+                                      open: true,
+                                      type: "medication",
+                                      id: med.id,
+                                      title: med.name,
+                                      targetActiveState: false,
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100/80 border border-amber-200 rounded shadow-2xs transition-colors"
+                                  title="Inativar medicamento (Soft Delete)"
+                                >
+                                  <EyeOff className="w-3 h-3 text-amber-600" />
+                                  <span>Inativar</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() =>
+                                    setConfirmSoftDeleteModal({
+                                      open: true,
+                                      type: "medication",
+                                      id: med.id,
+                                      title: med.name,
+                                      targetActiveState: true,
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200 rounded shadow-2xs transition-colors"
+                                  title="Reativar medicamento no catálogo"
+                                >
+                                  <RotateCcw className="w-3 h-3 text-emerald-600" />
+                                  <span>Reativar</span>
+                                </button>
+                              )
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -510,29 +787,42 @@ export default function CadastrosPage() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-[#171A20] text-white border-b border-[#282C34]">
-                    <th className="py-2.5 px-4 font-semibold w-32">Código CID-10</th>
+                    <th className="py-2.5 px-4 font-semibold w-28">Código CID-10</th>
                     <th className="py-2.5 px-4 font-semibold">Descrição Oficial da Patologia (PCDT)</th>
                     <th className="py-2.5 px-4 font-semibold text-center w-28">Protocolo</th>
-                    <th className="py-2.5 px-4 font-semibold text-center w-24">Status</th>
+                    <th className="py-2.5 px-4 font-semibold text-center w-20">Status</th>
+                    <th className="py-2.5 px-4 font-semibold text-right w-36">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#E5E7EB] bg-white">
                   {filteredCids.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="py-10 text-center text-xs text-[#5C5E62]">
-                        Nenhum CID-10 localizado no catálogo.
+                      <td colSpan={5} className="py-10 text-center text-xs text-[#5C5E62]">
+                        Nenhum CID-10 localizado com os filtros aplicados.
                       </td>
                     </tr>
                   ) : (
                     filteredCids.map((cid) => (
-                      <tr key={cid.id} className="hover:bg-[#F9FAFB] transition-colors">
+                      <tr
+                        key={cid.id}
+                        className={`hover:bg-[#F9FAFB] transition-colors ${
+                          cid.active === false ? "bg-neutral-50/60 opacity-80" : ""
+                        }`}
+                      >
                         <td className="py-3 px-4 font-mono font-bold text-[#171A20]">
                           <span className="bg-[#F4F4F6] px-2 py-0.5 rounded border border-[#E5E7EB]">
                             {cid.code}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-[#171A20] font-medium">
-                          {cid.description}
+                          <div className="flex items-center gap-1.5">
+                            <span>{cid.description}</span>
+                            {cid.active === false && (
+                              <span className="text-[10px] text-amber-700 font-medium bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
+                                Inativo
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-4 text-center">
                           <Badge variant="outline" className="text-[10px]">
@@ -540,7 +830,64 @@ export default function CadastrosPage() {
                           </Badge>
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <Badge variant="success">Ativo</Badge>
+                          {cid.active !== false ? (
+                            <Badge variant="success">Ativo</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[#5C5E62] border-[#D1D5DB] bg-[#F4F4F6]">
+                              Inativo
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleOpenEditCid(cid)}
+                              disabled={!isAdmin}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-[#171A20] bg-white hover:bg-[#F4F4F6] border border-[#E5E7EB] rounded shadow-2xs transition-colors disabled:opacity-40"
+                              title={isAdmin ? "Editar diagnóstico e PCDT" : "Apenas administradores podem editar"}
+                            >
+                              <Pencil className="w-3 h-3 text-[#5C5E62]" />
+                              <span>Editar</span>
+                            </button>
+
+                            {isAdmin && (
+                              cid.active !== false ? (
+                                <button
+                                  onClick={() =>
+                                    setConfirmSoftDeleteModal({
+                                      open: true,
+                                      type: "cid",
+                                      id: cid.id,
+                                      title: `${cid.code} - ${cid.description}`,
+                                      targetActiveState: false,
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100/80 border border-amber-200 rounded shadow-2xs transition-colors"
+                                  title="Inativar CID-10 (Soft Delete)"
+                                >
+                                  <EyeOff className="w-3 h-3 text-amber-600" />
+                                  <span>Inativar</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() =>
+                                    setConfirmSoftDeleteModal({
+                                      open: true,
+                                      type: "cid",
+                                      id: cid.id,
+                                      title: `${cid.code} - ${cid.description}`,
+                                      targetActiveState: true,
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200 rounded shadow-2xs transition-colors"
+                                  title="Reativar CID-10 no catálogo"
+                                >
+                                  <RotateCcw className="w-3 h-3 text-emerald-600" />
+                                  <span>Reativar</span>
+                                </button>
+                              )
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -648,6 +995,283 @@ export default function CadastrosPage() {
             </Button>
           </div>
         </form>
+      </Dialog>
+
+      {/* Modal Editar Medicamento (Apenas Admin) */}
+      <Dialog
+        open={isEditMedModalOpen}
+        onOpenChange={setIsEditMedModalOpen}
+        title="Editar Medicamento do CEAF / SIGTAP"
+        description="Atualize as informações cadastrais, código de procedimento ou CIDs autorizados no PCDT."
+      >
+        <form onSubmit={handleUpdateMedication} className="space-y-4">
+          <Input
+            label="Código do Procedimento SIGTAP (10 dígitos)"
+            placeholder="Ex: 0604380014"
+            value={editMedSigtapCode}
+            onChange={(e) => setEditMedSigtapCode(e.target.value)}
+          />
+
+          <Input
+            label="Denominação Comum Brasileira (DCB) / Concentração *"
+            placeholder="Ex: Adalimumabe 40mg/0,8mL"
+            value={editMedName}
+            onChange={(e) => setEditMedName(e.target.value)}
+            required
+          />
+
+          <Input
+            label="Forma Farmacêutica"
+            placeholder="Ex: Solução Injetável em seringa preenchida"
+            value={editMedForm}
+            onChange={(e) => setEditMedForm(e.target.value)}
+          />
+
+          <div>
+            <label className="text-xs font-semibold text-[#171A20] block mb-1">
+              CIDs Autorizados no Protocolo Clínico / PCDT:
+            </label>
+            <Input
+              placeholder="Ex: M05.8, M06.0, K50.0 (separados por vírgula)"
+              value={editMedPcdts}
+              onChange={(e) => setEditMedPcdts(e.target.value)}
+            />
+            <p className="text-[11px] text-[#5C5E62] mt-1">
+              Estes diagnósticos habilitam a validação clínica automática durante o registro de atendimento.
+            </p>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-[#171A20] block mb-1">
+              Status Operacional (Soft Delete):
+            </label>
+            <select
+              value={editMedActive ? "true" : "false"}
+              onChange={(e) => setEditMedActive(e.target.value === "true")}
+              className="w-full h-9 px-3 text-xs bg-white border border-[#E5E7EB] rounded focus:outline-none focus:ring-1 focus:ring-[#171A20]"
+            >
+              <option value="true">Ativo (Disponível para seleção em novos atendimentos)</option>
+              <option value="false">Inativo (Descontinuado via Soft Delete - histórico preservado)</option>
+            </select>
+          </div>
+
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded text-[11px] text-blue-900 flex items-start gap-2">
+            <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+            <div className="leading-relaxed">
+              <span className="font-semibold block text-blue-950">
+                Política de Rastreabilidade e Auditoria do SUS:
+              </span>
+              <span>
+                Para proteger os registros passados, itens cadastrados não sofrem deleção física (hard delete). Ao alterar para <strong>Inativo</strong>, o fármaco é ocultado das novas prescrições mantendo os prontuários anteriores 100% consistentes.
+              </span>
+            </div>
+          </div>
+
+          {editMedError && (
+            <div className="p-2.5 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>{editMedError}</span>
+            </div>
+          )}
+
+          {editMedSuccess && (
+            <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-800 flex items-center gap-1.5">
+              <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{editMedSuccess}</span>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E5E7EB]">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEditMedModalOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              disabled={editMedLoading}
+              className="bg-[#171A20] hover:bg-[#282C34] text-white"
+            >
+              {editMedLoading ? "Gravando no Supabase..." : "Salvar Alterações"}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* Modal Editar CID-10 / PCDT (Apenas Admin) */}
+      <Dialog
+        open={isEditCidModalOpen}
+        onOpenChange={setIsEditCidModalOpen}
+        title="Editar Diagnóstico PCDT (CID-10)"
+        description="Atualize o código CID ou a denominação oficial da patologia protocolada."
+      >
+        <form onSubmit={handleUpdateCid} className="space-y-4">
+          <Input
+            label="Código CID-10 *"
+            placeholder="Ex: M05.8"
+            value={editCidCode}
+            onChange={(e) => setEditCidCode(e.target.value.toUpperCase())}
+            required
+          />
+
+          <Input
+            label="Descrição Oficial da Patologia (PCDT) *"
+            placeholder="Ex: Artropatia psoriásica"
+            value={editCidDesc}
+            onChange={(e) => setEditCidDesc(e.target.value)}
+            required
+          />
+
+          <div>
+            <label className="text-xs font-semibold text-[#171A20] block mb-1">
+              Status Operacional (Soft Delete):
+            </label>
+            <select
+              value={editCidActive ? "true" : "false"}
+              onChange={(e) => setEditCidActive(e.target.value === "true")}
+              className="w-full h-9 px-3 text-xs bg-white border border-[#E5E7EB] rounded focus:outline-none focus:ring-1 focus:ring-[#171A20]"
+            >
+              <option value="true">Ativo (Disponível nos atendimentos clínicos)</option>
+              <option value="false">Inativo (Descontinuado via Soft Delete - histórico preservado)</option>
+            </select>
+          </div>
+
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded text-[11px] text-blue-900 flex items-start gap-2">
+            <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+            <div className="leading-relaxed">
+              <span className="font-semibold block text-blue-950">
+                Preservação Histórica e Longitudinal:
+              </span>
+              <span>
+                CIDs associados a atendimentos passados não podem ser deletados fisicamente. Ao inativar, novos registros não poderão selecionar este código, protegendo os relatórios estatísticos anteriores.
+              </span>
+            </div>
+          </div>
+
+          {editCidError && (
+            <div className="p-2.5 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>{editCidError}</span>
+            </div>
+          )}
+
+          {editCidSuccess && (
+            <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-800 flex items-center gap-1.5">
+              <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{editCidSuccess}</span>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E5E7EB]">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEditCidModalOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              disabled={editCidLoading}
+              className="bg-[#171A20] hover:bg-[#282C34] text-white"
+            >
+              {editCidLoading ? "Gravando no Supabase..." : "Salvar Alterações"}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* Modal Confirmação de Soft Delete (Inativação / Reativação) */}
+      <Dialog
+        open={confirmSoftDeleteModal.open}
+        onOpenChange={(open) =>
+          setConfirmSoftDeleteModal((prev) => ({ ...prev, open }))
+        }
+        title={
+          confirmSoftDeleteModal.targetActiveState
+            ? "Reativar Item no Catálogo"
+            : "Inativar Item no Catálogo (Soft Delete)"
+        }
+        description={
+          !confirmSoftDeleteModal.targetActiveState
+            ? "A exclusão física é permanentemente bloqueada. Ao confirmar, o registro fica inativo para novas seleções sem perda de dados."
+            : "Ao reativar, este registro voltará imediatamente a ficar disponível para novos atendimentos no sistema."
+        }
+      >
+        <div className="space-y-4 text-xs">
+          <div className="p-3 bg-[#F4F4F6] rounded border border-[#E5E7EB]">
+            <span className="text-[11px] font-semibold text-[#5C5E62] block uppercase tracking-wider">
+              Item Selecionado:
+            </span>
+            <span className="text-sm font-bold text-[#171A20] block mt-0.5">
+              {confirmSoftDeleteModal.title}
+            </span>
+            <span className="text-[11px] text-[#5C5E62] block mt-1">
+              Categoria:{" "}
+              {confirmSoftDeleteModal.type === "medication"
+                ? "Medicamento do CEAF (06.04)"
+                : "Diagnóstico PCDT / CID-10"}
+            </span>
+          </div>
+
+          {!confirmSoftDeleteModal.targetActiveState ? (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded text-amber-900 flex items-start gap-2 text-xs">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-semibold block">Confirmação de Soft Delete:</span>
+                <span className="leading-relaxed">
+                  Este registro <strong>NÃO</strong> será excluído do banco de dados (zero perda de dados). Ele receberá a marcação <code>active: false</code> para não aparecer em novas seleções de atendimento, preservando integralmente o histórico clínico anterior.
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-emerald-900 flex items-start gap-2 text-xs">
+              <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-semibold block">Reativação Operacional:</span>
+                <span className="leading-relaxed">
+                  O registro receberá a marcação <code>active: true</code> e voltará imediatamente a ser exibido no formulário de atendimento e filtros ativos.
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E5E7EB]">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setConfirmSoftDeleteModal((prev) => ({ ...prev, open: false }))
+              }
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              onClick={handleExecuteSoftDelete}
+              className={
+                !confirmSoftDeleteModal.targetActiveState
+                  ? "bg-amber-600 hover:bg-amber-700 text-white"
+                  : "bg-emerald-600 hover:bg-emerald-700 text-white"
+              }
+            >
+              {!confirmSoftDeleteModal.targetActiveState
+                ? "Confirmar Inativação (Soft Delete)"
+                : "Confirmar Reativação"}
+            </Button>
+          </div>
+        </div>
       </Dialog>
 
       {/* Modal Incorporação Oficial SIGTAP / CEAF (Apenas Admin) */}
@@ -1118,26 +1742,7 @@ Golimumabe 50mg/0,5mL;Solução Injetável;M45;Espondilite ancilosante"
           )}
 
           {/* Rodapé do Modal */}
-          <div className="flex items-center justify-between pt-3 border-t border-[#E5E7EB]">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                if (confirm("Deseja restaurar o catálogo oficial padrão do CEAF (34 medicamentos e 22 CIDs)?")) {
-                  resetCatalogsToOfficialCEAF();
-                  setImportStatus({
-                    type: "success",
-                    message: "Catálogo padrão oficial restaurado com sucesso.",
-                  });
-                }
-              }}
-              className="text-[11px]"
-            >
-              <RefreshCw className="w-3 h-3 mr-1" />
-              Restaurar Padrão Oficial
-            </Button>
-
+          <div className="flex items-center justify-end pt-3 border-t border-[#E5E7EB]">
             <Button
               type="button"
               variant="outline"

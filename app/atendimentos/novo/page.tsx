@@ -45,6 +45,7 @@ export default function NovoAtendimentoPage() {
     units,
     profiles,
     currentUser,
+    selectedUnitId,
     activeUnit,
     canEdit,
     addConsultation,
@@ -234,13 +235,14 @@ export default function NovoAtendimentoPage() {
     setIsNewPatient(false);
   };
 
-  // 2. Autocomplete de CID-10
+  // 2. Autocomplete de CID-10 (apenas CIDs ativos para novas seleções)
   const filteredCids = useMemo(() => {
+    const activeCids = cids.filter((c) => c.active !== false);
     if (!cidSearchTerm.trim()) {
-      return cids.slice(0, 10);
+      return activeCids.slice(0, 10);
     }
     const term = cidSearchTerm.toLowerCase();
-    return cids.filter(
+    return activeCids.filter(
       (c) => c.code.toLowerCase().includes(term) || c.description.toLowerCase().includes(term)
     );
   }, [cids, cidSearchTerm]);
@@ -249,9 +251,11 @@ export default function NovoAtendimentoPage() {
     return cids.find((c) => c.id === primaryCidId);
   }, [cids, primaryCidId]);
 
-  // 3. Autocomplete de Medicamentos (CEAF com Validação PCDT via rl_procedimento_cid)
+  // 3. Autocomplete de Medicamentos (CEAF ativos com Validação PCDT via rl_procedimento_cid)
   const filteredMedications = useMemo(() => {
-    const unselected = medications.filter((m) => !selectedMedicationIds.includes(m.id));
+    const unselected = medications.filter(
+      (m) => m.active !== false && !selectedMedicationIds.includes(m.id)
+    );
     const term = medSearchTerm.toLowerCase().trim();
 
     let list = unselected;
@@ -321,20 +325,22 @@ export default function NovoAtendimentoPage() {
       alert("Por favor, preencha pelo menos Nome Completo e CPF.");
       return;
     }
-    if (!currentUser.unit_id) {
-      alert("Usuário sem unidade vinculada.");
+    const targetUnitId =
+      currentUser?.unit_id || (selectedUnitId !== "all" ? selectedUnitId : null);
+    if (!targetUnitId) {
+      alert("Selecione uma unidade no cabeçalho para vincular o paciente.");
       return;
     }
 
     const created = addPatient({
-      unit_id: currentUser.unit_id,
+      unit_id: targetUnitId,
       full_name: quickFullName.trim(),
       cpf: quickCpf.trim(),
       cns: quickCns.trim() || undefined,
       birth_date: quickBirthDate || undefined,
       phone: quickPhone || undefined,
       status: "em_acompanhamento",
-      created_by: currentUser.id,
+      created_by: currentUser?.id,
     });
 
     handleSelectPatient(created);
@@ -364,8 +370,10 @@ export default function NovoAtendimentoPage() {
       setErrorMsg("Selecione o Diagnóstico Principal (CID-10).");
       return;
     }
-    if (!currentUser.unit_id) {
-      setErrorMsg("Usuário não possui unidade vinculada.");
+    const targetUnitId =
+      currentUser?.unit_id || (selectedUnitId !== "all" ? selectedUnitId : null);
+    if (!targetUnitId) {
+      setErrorMsg("Usuário não possui unidade vinculada. Selecione uma unidade em foco.");
       return;
     }
 
@@ -376,9 +384,9 @@ export default function NovoAtendimentoPage() {
     );
 
     addConsultation({
-      unit_id: currentUser.unit_id,
+      unit_id: targetUnitId,
       patient_id: selectedPatient.id,
-      pharmacist_id: currentUser.id,
+      pharmacist_id: currentUser?.id || "unknown",
       consultation_date: consultationDate,
       primary_cid_id: primaryCidId,
       is_pharmaceutical_guidance_only: isGuidanceOnly,
@@ -440,8 +448,8 @@ export default function NovoAtendimentoPage() {
               Registro de Atendimento Farmacêutico
             </h1>
             <p className="text-xs text-[#5C5E62]">
-              Unidade Ativa: <strong>{activeUnit?.name}</strong> · Farmacêutico Responsável:{" "}
-              <strong>{currentUser.full_name}</strong>
+              Unidade Ativa: <strong>{activeUnit?.name || "Todas as Unidades"}</strong> · Farmacêutico Responsável:{" "}
+              <strong>{currentUser?.full_name || "Profissional Farmacêutico"}</strong>
             </p>
           </div>
         </div>

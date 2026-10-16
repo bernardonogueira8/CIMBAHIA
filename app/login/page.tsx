@@ -3,88 +3,126 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 import {
   Lock,
   Mail,
   ArrowRight,
   ShieldCheck,
-  CheckCircle2,
   AlertCircle,
   Building2,
   Stethoscope,
-  Sparkles,
+  LogIn,
+  ShieldAlert,
+  Info,
+  CheckCircle2,
+  HelpCircle,
 } from "lucide-react";
 import { useApp } from "@/lib/context/AppContext";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase/client";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Dialog } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Profile } from "@/lib/types";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { profiles, setCurrentUser, setSelectedUnitId } = useApp();
+  const {
+    loginWithCredentials,
+    enterDemoMode,
+    isAuthenticated,
+    isDemoMode,
+    currentUser,
+    logout,
+  } = useApp();
 
-  const [email, setEmail] = useState("juliana.mendes@saude.ba.gov.br");
-  const [password, setPassword] = useState("••••••••••••");
+  // Estado do formulário de Login Institucional
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
+  // Estado do Modal de Recuperação de Senha
+  const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
+  const [recoveryEmail, setRecoveryEmail] = useState("");
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [recoveryMsg, setRecoveryMsg] = useState("");
+  const [recoveryError, setRecoveryError] = useState("");
+
+  // Submissão do Login Real no Supabase Auth
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
     setLoading(true);
 
     try {
-      if (isSupabaseConfigured && supabase) {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (error) {
-          console.warn("Supabase auth error fallback to local user profile", error);
-        }
+      const res = await loginWithCredentials(email, password);
+      if (!res.success) {
+        setErrorMsg(
+          res.error || "Credenciais inválidas. Verifique seu e-mail e senha cadastrados."
+        );
+        setLoading(false);
+        return;
       }
 
-      // Local matching profile
-      const matchedProfile =
-        profiles.find((p) => p.email.toLowerCase() === email.toLowerCase()) ||
-        profiles[0];
-
-      setCurrentUser(matchedProfile);
-      if (matchedProfile.unit_id) {
-        setSelectedUnitId(matchedProfile.unit_id);
-      }
       router.push("/indicadores");
     } catch (err: any) {
-      setErrorMsg(err?.message || "Erro ao realizar autenticação.");
+      setErrorMsg(err?.message || "Erro inesperado ao realizar autenticação.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleQuickLogin = (profileId: string) => {
-    const prof = profiles.find(
-      (p) =>
-        p.id === profileId ||
-        p.email.toLowerCase() === profileId.toLowerCase() ||
-        (profileId === "u-001" && p.email.includes("juliana")) ||
-        (profileId === "u-002" && p.email.includes("rodrigo")) ||
-        (profileId === "u-003" && p.email.includes("mariana"))
-    );
-    if (prof) {
-      setCurrentUser(prof);
-      if (prof.unit_id) {
-        setSelectedUnitId(prof.unit_id);
+  // Submissão do Esqueci Minha Senha
+  const handleRecoveryPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoveryError("");
+    setRecoveryMsg("");
+
+    if (!recoveryEmail.trim()) {
+      setRecoveryError("Informe seu e-mail institucional cadastrado.");
+      return;
+    }
+
+    setRecoveryLoading(true);
+
+    try {
+      if (isSupabaseConfigured && supabase) {
+        const { error } = await supabase.auth.resetPasswordForEmail(
+          recoveryEmail.trim().toLowerCase(),
+          {
+            redirectTo: typeof window !== "undefined" ? `${window.location.origin}/login` : undefined,
+          }
+        );
+
+        if (error) {
+          setRecoveryError(`Falha ao solicitar redefinição: ${error.message}`);
+          setRecoveryLoading(false);
+          return;
+        }
+
+        setRecoveryMsg(
+          "Solicitação enviada com sucesso! Caso seu e-mail esteja registrado na base institucional, você receberá o link de redefinição. Caso sua rede interna não receba e-mails externos, solicite a redefinição direta ao Administrador Geral da sua unidade."
+        );
       } else {
-        setSelectedUnitId("all");
+        setRecoveryMsg("Ambiente local: Solicite a alteração da sua senha diretamente ao Administrador Geral no painel de Unidades & Usuários.");
       }
-      router.push("/indicadores");
+    } catch (err: any) {
+      setRecoveryError(err?.message || "Erro inesperado ao processar recuperação.");
+    } finally {
+      setRecoveryLoading(false);
     }
   };
 
+  // Acionamento do Modo de Amostra / Demonstração
+  const handleDemoAccess = (profileId: string) => {
+    enterDemoMode(profileId);
+    router.push("/indicadores");
+  };
+
   return (
-    <div className="relative min-h-[calc(100vh-4rem)] flex items-center justify-center p-4">
+    <div className="relative min-h-[calc(100vh-4rem)] flex items-center justify-center p-4 py-8">
       {/* Background Image com overlay escuro imersivo */}
       <div className="absolute inset-0 z-0 overflow-hidden">
         <img
@@ -96,7 +134,7 @@ export default function LoginPage() {
       </div>
 
       {/* Card de Login Centralizado no estilo Tesla Design System */}
-      <div className="relative z-10 w-full max-w-md bg-[#171A20]/90 backdrop-blur-md border border-[#393C41] rounded-lg shadow-2xl p-6 sm:p-8 text-white animate-in zoom-in-95 duration-200">
+      <div className="relative z-10 w-full max-w-md bg-[#171A20]/95 backdrop-blur-md border border-[#393C41] rounded-xl shadow-2xl p-6 sm:p-8 text-white animate-in zoom-in-95 duration-200">
         {/* Top Header com Logo Oficial */}
         <div className="flex flex-col items-center text-center mb-6">
           <div className="w-24 h-14 relative mb-3 bg-[#EEEEEE] p-1.5 rounded-lg shadow-md flex items-center justify-center">
@@ -112,22 +150,56 @@ export default function LoginPage() {
             </h1>
             <span className="w-1.5 h-1.5 rounded-full bg-[#E82127]" />
             <Badge variant="outline" className="border-[#393C41] text-[#E82127] text-[10px]">
-              Gestão Clínica
+              Acesso Restrito
             </Badge>
           </div>
           <p className="text-xs text-[#A0A2A8] mt-1 max-w-xs">
-            Portal de Gestão do Cuidado Farmacêutico e Apuração de Indicadores Macrorregionais.
+            Portal Oficial de Monitoramento Farmacêutico e Apuração de Indicadores Macrorregionais.
           </p>
         </div>
 
+        {/* Mensagens de Alerta */}
         {errorMsg && (
-          <div className="mb-4 p-3 bg-[#E82127]/10 border border-[#E82127]/40 rounded text-xs text-[#FCA5A5] flex items-center gap-2">
+          <div className="mb-4 p-3 bg-[#E82127]/15 border border-[#E82127]/50 rounded-lg text-xs text-[#FCA5A5] flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 text-[#E82127]" />
             <span>{errorMsg}</span>
           </div>
         )}
 
-        {/* Formulário de Login */}
+        {/* Notificação de Sessão Ativa */}
+        {isAuthenticated && currentUser && (
+          <div className="mb-4 p-3 bg-[#282C34] border border-[#393C41] rounded-lg text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <p className="text-white font-semibold">
+                Sessão Ativa: {currentUser.full_name}
+              </p>
+              <p className="text-[10px] text-[#A0A2A8]">
+                {isDemoMode ? "Ambiente de Amostra (Sandbox Local)" : "Ambiente Real Conectado"}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 self-end sm:self-auto">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => router.push("/indicadores")}
+                className="h-7 px-2.5 text-[11px] bg-white text-[#171A20] hover:bg-[#EEEEEE]"
+              >
+                Acessar Painel →
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={logout}
+                className="h-7 px-2 text-[11px] text-[#FCA5A5] hover:bg-red-950/40"
+              >
+                Sair
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* FORMULÁRIO DE LOGIN INSTITUCIONAL */}
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-[#C4C6CC] mb-1">
@@ -139,7 +211,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="w-full h-10 pl-9 pr-3 text-sm bg-[#282C34] border border-[#393C41] rounded text-white placeholder-[#7A7D85] focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-colors"
+                className="w-full h-10 pl-9 pr-3 text-sm bg-[#282C34] border border-[#393C41] rounded-lg text-white placeholder-[#7A7D85] focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-colors"
                 placeholder="seu.email@saude.ba.gov.br"
               />
               <Mail className="w-4 h-4 text-[#8E9199] absolute left-3 top-3 pointer-events-none" />
@@ -151,16 +223,18 @@ export default function LoginPage() {
               <label className="text-xs font-medium text-[#C4C6CC]">
                 Senha de Acesso
               </label>
-              <a
-                href="#esqueci-senha"
-                onClick={(e) => {
-                  e.preventDefault();
-                  alert("Para redefinição de senha institucional, contate a coordenação da sua Macrorregional.");
+              <button
+                type="button"
+                onClick={() => {
+                  setRecoveryEmail(email !== "@saude.ba.gov.br" ? email : "");
+                  setRecoveryError("");
+                  setRecoveryMsg("");
+                  setIsForgotModalOpen(true);
                 }}
-                className="text-[11px] text-[#A0A2A8] hover:text-white transition-colors"
+                className="text-[11px] text-[#A0A2A8] hover:text-white transition-colors cursor-pointer"
               >
                 Esqueceu a senha?
-              </a>
+              </button>
             </div>
             <div className="relative">
               <input
@@ -168,7 +242,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="w-full h-10 pl-9 pr-3 text-sm bg-[#282C34] border border-[#393C41] rounded text-white placeholder-[#7A7D85] focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-colors"
+                className="w-full h-10 pl-9 pr-3 text-sm bg-[#282C34] border border-[#393C41] rounded-lg text-white placeholder-[#7A7D85] focus:outline-none focus:border-white focus:ring-1 focus:ring-white transition-colors"
                 placeholder="••••••••••••"
               />
               <Lock className="w-4 h-4 text-[#8E9199] absolute left-3 top-3 pointer-events-none" />
@@ -178,29 +252,42 @@ export default function LoginPage() {
           <Button
             type="submit"
             disabled={loading}
-            className="w-full h-10 bg-[#E82127] hover:bg-[#C91A20] active:bg-[#A8151A] text-white font-medium text-sm rounded transition-all shadow-md mt-2"
+            className="w-full h-10 bg-white text-[#171A20] hover:bg-[#EEEEEE] font-semibold text-xs uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer mt-2"
           >
-            {loading ? "Autenticando..." : "Entrar no Sistema"}
-            <ArrowRight className="w-4 h-4 ml-2" />
+            {loading ? (
+              <span>Autenticando no Supabase...</span>
+            ) : (
+              <>
+                <LogIn className="w-4 h-4" />
+                <span>Entrar no Sistema</span>
+                <ArrowRight className="w-4 h-4" />
+              </>
+            )}
           </Button>
         </form>
 
-        {/* Separador de Acesso Rápido para Demonstração */}
-        <div className="relative my-6 text-center">
+        {/* SEÇÃO SEPARADA: ACESSO DE AMOSTRA / DEMO (SANDBOX) */}
+        <div className="relative my-6">
           <div className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-[#393C41]" />
           </div>
-          <span className="relative bg-[#171A20] px-3 text-[11px] font-medium uppercase tracking-wider text-[#7A7D85]">
-            Acesso Rápido Simulado
-          </span>
+          <div className="relative flex justify-center text-center">
+            <span className="bg-[#171A20] px-3 text-[10px] font-bold uppercase tracking-wider text-amber-400 border border-[#393C41] rounded-full py-0.5">
+              Ambiente de Amostra (Demonstração)
+            </span>
+          </div>
         </div>
 
-        {/* Botões de Acesso Rápido com Perfis Oficiais */}
+        <p className="text-[11px] text-[#A0A2A8] text-center mb-3">
+          Acesse com uma persona de teste sem necessidade de credenciais:
+        </p>
+
+        {/* Botões de Acesso Rápido de Amostra */}
         <div className="space-y-2">
           <button
             type="button"
-            onClick={() => handleQuickLogin("u-001")}
-            className="w-full text-left p-2.5 rounded border border-[#393C41] bg-[#282C34]/60 hover:bg-[#282C34] hover:border-white/40 transition-colors flex items-center justify-between group"
+            onClick={() => handleDemoAccess("11111111-0000-0000-0000-000000000001")}
+            className="w-full text-left p-2.5 rounded-lg border border-[#393C41] bg-[#282C34]/60 hover:bg-[#282C34] hover:border-white/40 transition-colors flex items-center justify-between group cursor-pointer"
           >
             <div className="flex items-center gap-2.5">
               <div className="w-7 h-7 rounded bg-[#171A20] flex items-center justify-center text-emerald-400 border border-[#393C41]">
@@ -211,19 +298,19 @@ export default function LoginPage() {
                   Dra. Juliana Mendes (CRF-BA 8421)
                 </p>
                 <p className="text-[10px] text-[#A0A2A8]">
-                  Farmacêutica · BRS Paulo Afonso (Norte)
+                  Amostra: Farmacêutica · BRS Paulo Afonso (Norte)
                 </p>
               </div>
             </div>
-            <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-1.5 py-0.5 rounded">
-              Lotação Local
+            <span className="text-[9px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 px-1.5 py-0.5 rounded font-mono">
+              Amostra Local
             </span>
           </button>
 
           <button
             type="button"
-            onClick={() => handleQuickLogin("u-002")}
-            className="w-full text-left p-2.5 rounded border border-[#393C41] bg-[#282C34]/60 hover:bg-[#282C34] hover:border-white/40 transition-colors flex items-center justify-between group"
+            onClick={() => handleDemoAccess("22222222-0000-0000-0000-000000000002")}
+            className="w-full text-left p-2.5 rounded-lg border border-[#393C41] bg-[#282C34]/60 hover:bg-[#282C34] hover:border-white/40 transition-colors flex items-center justify-between group cursor-pointer"
           >
             <div className="flex items-center gap-2.5">
               <div className="w-7 h-7 rounded bg-[#171A20] flex items-center justify-center text-amber-400 border border-[#393C41]">
@@ -234,29 +321,92 @@ export default function LoginPage() {
                   Dr. Rodrigo Sampaio (Gestor Geral)
                 </p>
                 <p className="text-[10px] text-[#A0A2A8]">
-                  Administrador · Acesso a Todas as Unidades
+                  Amostra: Administrador · Visão de Todas as Unidades
                 </p>
               </div>
             </div>
-            <span className="text-[10px] bg-amber-950 text-amber-400 border border-amber-800 px-1.5 py-0.5 rounded">
-              Admin Geral
+            <span className="text-[9px] bg-amber-950/60 text-amber-400 border border-amber-800/80 px-1.5 py-0.5 rounded font-mono">
+              Amostra Geral
             </span>
           </button>
         </div>
 
-        {/* Rodapé do Card */}
-        <div className="mt-6 pt-4 border-t border-[#393C41] flex items-center justify-between text-xs text-[#8E9199]">
+        {/* Rodapé institucional */}
+        <div className="mt-6 pt-4 border-t border-[#393C41]/60 flex items-center justify-between text-[11px] text-[#7A7D85]">
+          <span></span>
           <Link
             href="/"
-            className="text-[#C4C6CC] hover:text-white transition-colors"
+            className="text-[#A0A2A8] hover:text-white transition-colors"
           >
-            ← Voltar para Página Inicial
+            Voltar à Página Inicial →
           </Link>
-          <span className="text-[11px] text-[#7A7D85]">
-            Ambiente Seguro
-          </span>
         </div>
       </div>
+
+      {/* MODAL DE RECUPERAÇÃO DE SENHA */}
+      <Dialog
+        open={isForgotModalOpen}
+        onOpenChange={setIsForgotModalOpen}
+        title="Recuperação de Senha Institucional"
+        description="Solicite a redefinição de acesso para seu e-mail institucional."
+        maxWidth="md"
+      >
+        <form onSubmit={handleRecoveryPassword} className="space-y-4">
+          {recoveryError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+              <span>{recoveryError}</span>
+            </div>
+          )}
+
+          {recoveryMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-700 flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 mt-0.5" />
+              <span>{recoveryMsg}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs font-semibold text-[#393C41] block mb-1">
+              E-mail Institucional Cadastrado *
+            </label>
+            <Input
+              type="email"
+              placeholder="seu.email@saude.ba.gov.br"
+              value={recoveryEmail}
+              onChange={(e) => setRecoveryEmail(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="p-3 bg-[#F4F4F6] border border-[#E5E7EB] rounded text-[11px] text-[#5C5E62] flex items-start gap-2">
+            <HelpCircle className="w-4 h-4 text-[#171A20] shrink-0 mt-0.5" />
+            <div>
+              <strong className="text-[#171A20] block">Acesso Gerenciado:</strong>
+              Caso seu e-mail institucional pertença a uma intranet sem tráfego de e-mails externos, o Administrador Geral da sua unidade ou Macrorregional pode redefinir sua senha diretamente pela tela de <strong>Unidades & Usuários</strong>.
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#F0F1F3]">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsForgotModalOpen(false)}
+            >
+              Fechar
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              disabled={recoveryLoading}
+            >
+              {recoveryLoading ? "Enviando solicitação..." : "Enviar Solicitação"}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
     </div>
   );
 }
