@@ -10,6 +10,7 @@ import {
   CheckCircle,
   UserCheck,
   UserPlus,
+  UserX,
   ShieldAlert,
   AlertCircle,
   CheckCircle2,
@@ -36,6 +37,7 @@ export default function UnidadesPage() {
     updateUnit,
     registerUser,
     updateUser,
+    toggleUserActive,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<"units" | "users">("units");
@@ -86,9 +88,11 @@ export default function UnidadesPage() {
   const [editUserCrf, setEditUserCrf] = useState("");
   const [editUserUnitId, setEditUserUnitId] = useState<string>("general");
   const [editUserRole, setEditUserRole] = useState<Role>("pharmacist");
+  const [editUserActive, setEditUserActive] = useState(true);
   const [editUserLoading, setEditUserLoading] = useState(false);
   const [editUserError, setEditUserError] = useState("");
   const [editUserSuccess, setEditUserSuccess] = useState("");
+  const [userActionLoadingId, setUserActionLoadingId] = useState<string | null>(null);
 
   const isAdmin = currentUser?.role === "admin";
 
@@ -217,6 +221,7 @@ export default function UnidadesPage() {
         unit_id: editUserRole === "admin" && editUserUnitId === "general" ? null : editUserUnitId,
         role: editUserRole,
         password: editUserPassword.trim() || undefined,
+        active: editUserActive,
       });
 
       if (!res.success) {
@@ -234,6 +239,28 @@ export default function UnidadesPage() {
       setEditUserError(err?.message || "Erro inesperado ao atualizar usuário.");
     } finally {
       setEditUserLoading(false);
+    }
+  };
+
+  const handleToggleUserStatus = async (user: Profile) => {
+    const isCurrentlyActive = user.active !== false;
+    const targetAction = isCurrentlyActive ? "inativar" : "reativar";
+    const confirmMsg = isCurrentlyActive
+      ? `Tem certeza que deseja inativar o acesso de ${user.full_name}? O profissional não conseguirá acessar o sistema até ser reativado.`
+      : `Deseja reativar o acesso ao sistema para ${user.full_name}?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    setUserActionLoadingId(user.id);
+    try {
+      const res = await toggleUserActive(user.id, !isCurrentlyActive);
+      if (!res.success) {
+        alert(res.error || `Erro ao ${targetAction} usuário.`);
+      }
+    } catch (err: any) {
+      alert(err?.message || `Erro ao ${targetAction} usuário.`);
+    } finally {
+      setUserActionLoadingId(null);
     }
   };
 
@@ -425,6 +452,7 @@ export default function UnidadesPage() {
                       <th className="py-2.5 px-4 font-semibold">CRF</th>
                       <th className="py-2.5 px-4 font-semibold">Unidade Vinculada</th>
                       <th className="py-2.5 px-4 font-semibold text-center">Papel (Role)</th>
+                      <th className="py-2.5 px-4 font-semibold text-center">Status</th>
                       {isAdmin && (
                         <th className="py-2.5 px-4 font-semibold text-right">Ações</th>
                       )}
@@ -464,28 +492,71 @@ export default function UnidadesPage() {
                                 : "Visualizador"}
                             </Badge>
                           </td>
+                          <td className="py-3 px-4 text-center">
+                            {p.active !== false ? (
+                              <Badge variant="success">Ativo</Badge>
+                            ) : (
+                              <Badge variant="danger">Inativo</Badge>
+                            )}
+                          </td>
                           {isAdmin && (
                             <td className="py-3 px-4 text-right">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setEditingUserId(p.id);
-                                  setEditUserName(p.full_name);
-                                  setEditUserEmail(p.email);
-                                  setEditUserCrf(p.crf || "");
-                                  setEditUserUnitId(p.unit_id || "general");
-                                  setEditUserRole(p.role);
-                                  setEditUserPassword("");
-                                  setEditUserError("");
-                                  setEditUserSuccess("");
-                                  setIsEditUserModalOpen(true);
-                                }}
-                                className="h-7 px-2.5 text-[11px]"
-                              >
-                                <Pencil className="w-3 h-3 mr-1" />
-                                Editar
-                              </Button>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingUserId(p.id);
+                                    setEditUserName(p.full_name);
+                                    setEditUserEmail(p.email);
+                                    setEditUserCrf(p.crf || "");
+                                    setEditUserUnitId(p.unit_id || "general");
+                                    setEditUserRole(p.role);
+                                    setEditUserActive(p.active !== false);
+                                    setEditUserPassword("");
+                                    setEditUserError("");
+                                    setEditUserSuccess("");
+                                    setIsEditUserModalOpen(true);
+                                  }}
+                                  className="h-7 px-2.5 text-[11px]"
+                                >
+                                  <Pencil className="w-3 h-3 mr-1" />
+                                  Editar
+                                </Button>
+
+                                {p.id === currentUser?.id ? (
+                                  <span
+                                    className="text-[10px] text-gray-400 italic px-2 py-1"
+                                    title="Não é possível inativar a própria conta logada"
+                                  >
+                                    (Você)
+                                  </span>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleToggleUserStatus(p)}
+                                    disabled={userActionLoadingId === p.id}
+                                    className={`h-7 px-2.5 text-[11px] ${
+                                      p.active !== false
+                                        ? "text-red-700 hover:text-red-800 hover:bg-red-50 border-red-200"
+                                        : "text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-200"
+                                    }`}
+                                  >
+                                    {p.active !== false ? (
+                                      <>
+                                        <UserX className="w-3 h-3 mr-1 text-red-600" />
+                                        Inativar
+                                      </>
+                                    ) : (
+                                      <>
+                                        <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
+                                        Reativar
+                                      </>
+                                    )}
+                                  </Button>
+                                )}
+                              </div>
                             </td>
                           )}
                         </tr>
@@ -912,6 +983,58 @@ export default function UnidadesPage() {
               </select>
             </div>
           </div>
+
+          {/* Status do Usuário: Ativo / Inativo */}
+          <div className="p-3 bg-[#F4F4F6] border border-[#E5E7EB] rounded-lg flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-1.5">
+                {editUserActive ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                ) : (
+                  <UserX className="w-4 h-4 text-red-600" />
+                )}
+                <label className="text-xs font-semibold text-[#171A20] block">
+                  Status de Atividade: {editUserActive ? "Conta Ativa" : "Conta Inativada"}
+                </label>
+              </div>
+              <p className="text-[11px] text-[#5C5E62] mt-0.5">
+                {editUserActive
+                  ? "O profissional possui acesso permitido e pode autenticar no sistema."
+                  : "Acesso bloqueado: o usuário não conseguirá realizar login."}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={currentUser?.id === editingUserId}
+                onClick={() => setEditUserActive(!editUserActive)}
+                className={`h-7 px-2.5 text-xs font-medium ${
+                  editUserActive
+                    ? "text-red-700 hover:text-red-800 hover:bg-red-50 border-red-200"
+                    : "text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-200"
+                }`}
+              >
+                {editUserActive ? (
+                  <>
+                    <UserX className="w-3.5 h-3.5 mr-1 text-red-600" />
+                    Inativar Usuário
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                    Reativar Usuário
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+          {currentUser?.id === editingUserId && (
+            <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded border border-amber-200">
+              Você está conectado com este perfil e não pode inativar seu próprio acesso.
+            </p>
+          )}
 
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#F0F1F3]">
             <Button

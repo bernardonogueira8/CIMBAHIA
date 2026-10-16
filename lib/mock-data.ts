@@ -51,6 +51,7 @@ export const INITIAL_PROFILES: Profile[] = [
     crf: "CRF-BA 8421",
     unit_id: "11111111-1111-1111-1111-111111111111",
     role: "pharmacist",
+    active: true,
   },
   {
     id: "22222222-0000-0000-0000-000000000002",
@@ -59,6 +60,7 @@ export const INITIAL_PROFILES: Profile[] = [
     crf: "CRF-BA 6120",
     unit_id: null,
     role: "admin",
+    active: true,
   },
   {
     id: "33333333-0000-0000-0000-000000000003",
@@ -67,6 +69,7 @@ export const INITIAL_PROFILES: Profile[] = [
     crf: "CRF-BA 9540",
     unit_id: "22222222-2222-2222-2222-222222222222",
     role: "pharmacist",
+    active: true,
   },
 ];
 

@@ -24,6 +24,7 @@ export interface Profile {
   crf?: string | null;
   unit_id?: string | null;
   role: Role;
+  active?: boolean;
   unit?: Unit | null;
   created_at?: string;
 }

@@ -16,6 +16,8 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const instant = false;
+
 export const metadata: Metadata = {
   title: "PharmaCare | Gestão do Cuidado Farmacêutico",
   description:

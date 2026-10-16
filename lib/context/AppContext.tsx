@@ -98,7 +98,12 @@ interface AppContextType {
       unit_id?: string | null;
       role?: Role;
       password?: string;
+      active?: boolean;
     }
+  ) => Promise<{ success: boolean; error?: string }>;
+  toggleUserActive: (
+    userId: string,
+    active: boolean
   ) => Promise<{ success: boolean; error?: string }>;
   importSIGTAPData: (
     newCids: Omit<CID, "id">[],
@@ -328,6 +333,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               .maybeSingle();
 
             if (active && dbProfile) {
+              if (dbProfile.active === false) {
+                await supabase.auth.signOut();
+                setIsDemoMode(false);
+                setCurrentUser(null);
+                setIsAuthenticated(false);
+                setPatients([]);
+                setConsultations([]);
+                setMonthlyData([]);
+                setAuthChecked(true);
+                return;
+              }
+
               setIsDemoMode(false);
               setCurrentUser(dbProfile);
               setIsAuthenticated(true);
@@ -394,6 +411,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           .maybeSingle();
 
         if (dbProfile) {
+          if (dbProfile.active === false) {
+            await client.auth.signOut();
+            setCurrentUser(null);
+            setIsAuthenticated(false);
+            setPatients([]);
+            setConsultations([]);
+            setMonthlyData([]);
+            return;
+          }
+
           setCurrentUser(dbProfile);
           setIsAuthenticated(true);
           setIsDemoMode(false);
@@ -472,6 +499,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!matchedProfile) {
           return { success: false, error: "E-mail não encontrado no cadastro local." };
         }
+        if (matchedProfile.active === false) {
+          return {
+            success: false,
+            error: "Acesso bloqueado: Este usuário foi inativado pela Administração. Entre em contato com a gestão.",
+          };
+        }
         setIsDemoMode(false);
         saveToStorage("isDemoMode", false);
         setCurrentUser(matchedProfile);
@@ -501,6 +534,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           .select("*, unit:units(*)")
           .eq("email", data.user.email)
           .maybeSingle();
+
+        if (dbProfile && dbProfile.active === false) {
+          await supabase.auth.signOut();
+          return {
+            success: false,
+            error: "Acesso bloqueado: Este usuário foi inativado pela Administração. Entre em contato com a gestão.",
+          };
+        }
 
         let activeProfile: Profile;
         if (dbProfile) {
@@ -1013,9 +1054,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       unit_id?: string | null;
       role?: Role;
       password?: string;
+      active?: boolean;
     }
   ): Promise<{ success: boolean; error?: string }> => {
     try {
+      if (currentUser && currentUser.id === userId && userData.active === false) {
+        return { success: false, error: "Você não pode inativar o seu próprio usuário logado." };
+      }
+
       if (userData.password && userData.password.trim().length >= 6) {
         if (isSupabaseConfigured && supabase) {
           const { error: pwErr } = await supabase.rpc("admin_update_user_password", {
@@ -1034,6 +1080,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (userData.crf !== undefined) updatePayload.crf = userData.crf?.trim() || null;
       if (userData.unit_id !== undefined) updatePayload.unit_id = userData.unit_id;
       if (userData.role !== undefined) updatePayload.role = userData.role;
+      if (userData.active !== undefined) updatePayload.active = userData.active;
 
       if (isSupabaseConfigured && supabase) {
         const { error } = await supabase
@@ -1060,6 +1107,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err: any) {
       return { success: false, error: err?.message || "Erro ao atualizar usuário." };
     }
+  };
+
+  const toggleUserActive = async (
+    userId: string,
+    newActive: boolean
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (currentUser && currentUser.id === userId && !newActive) {
+      return { success: false, error: "Você não pode inativar o seu próprio usuário logado." };
+    }
+    return updateUser(userId, { active: newActive });
   };
 
   // Importação em Lote de CIDs e Medicamentos SIGTAP (Admin)
@@ -1243,6 +1300,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addUnit,
         updateUnit,
         updateUser,
+        toggleUserActive,
         importSIGTAPData,
         clearSimulatedData,
         restoreDemoData,

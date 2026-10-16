@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -16,6 +16,7 @@ import {
   Info,
   CheckCircle2,
   HelpCircle,
+  KeyRound,
 } from "lucide-react";
 import { useApp } from "@/lib/context/AppContext";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase/client";
@@ -49,6 +50,70 @@ export default function LoginPage() {
   const [recoveryLoading, setRecoveryLoading] = useState(false);
   const [recoveryMsg, setRecoveryMsg] = useState("");
   const [recoveryError, setRecoveryError] = useState("");
+
+  // Estado do Modal de Redefinição Direta de Senha (via token ou link de recovery)
+  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetMsg, setResetMsg] = useState("");
+  const [resetError, setResetError] = useState("");
+
+  useEffect(() => {
+    if (!supabase) return;
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setIsResetPasswordOpen(true);
+      }
+    });
+
+    if (typeof window !== "undefined" && window.location.hash.includes("type=recovery")) {
+      setIsResetPasswordOpen(true);
+    }
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleUpdateNewPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetError("");
+    setResetMsg("");
+
+    if (newPassword.length < 6) {
+      setResetError("A nova senha deve ter no mínimo 6 caracteres.");
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      setResetError("As senhas digitadas não conferem.");
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      if (!supabase) throw new Error("Supabase não configurado.");
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        setResetError(`Erro ao atualizar senha: ${error.message}`);
+        setResetLoading(false);
+        return;
+      }
+
+      setResetMsg("Senha alterada com sucesso! Você já pode realizar o login com suas novas credenciais.");
+      setTimeout(() => {
+        setIsResetPasswordOpen(false);
+        setNewPassword("");
+        setConfirmNewPassword("");
+      }, 2000);
+    } catch (err: any) {
+      setResetError(err?.message || "Erro inesperado ao redefinir senha.");
+    } finally {
+      setResetLoading(false);
+    }
+  };
 
   // Submissão do Login Real no Supabase Auth
   const handleLogin = async (e: React.FormEvent) => {
@@ -379,11 +444,20 @@ export default function LoginPage() {
             />
           </div>
 
-          <div className="p-3 bg-[#F4F4F6] border border-[#E5E7EB] rounded text-[11px] text-[#5C5E62] flex items-start gap-2">
-            <HelpCircle className="w-4 h-4 text-[#171A20] shrink-0 mt-0.5" />
-            <div>
-              <strong className="text-[#171A20] block">Acesso Gerenciado:</strong>
-              Caso seu e-mail institucional pertença a uma intranet sem tráfego de e-mails externos, o Administrador Geral da sua unidade ou Macrorregional pode redefinir sua senha diretamente pela tela de <strong>Unidades & Usuários</strong>.
+          <div className="p-3 bg-[#F4F4F6] border border-[#E5E7EB] rounded text-[11px] text-[#5C5E62] space-y-2">
+            <div className="flex items-start gap-2">
+              <KeyRound className="w-4 h-4 text-[#171A20] shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-[#171A20] block">Senha Padrão Inicial:</strong>
+                Para os profissionais cadastrados, a senha padrão inicial configurada é <code className="bg-white px-1.5 py-0.5 rounded border border-gray-300 font-mono text-[#171A20]">PharmaCare@2026</code>.
+              </div>
+            </div>
+            <div className="flex items-start gap-2 pt-1 border-t border-gray-200">
+              <HelpCircle className="w-4 h-4 text-[#171A20] shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-[#171A20] block">Acesso Gerenciado:</strong>
+                Caso seu e-mail institucional pertença a uma intranet ou não receba mensagens externas, o Administrador Geral da Macrorregional pode redefinir sua senha diretamente pelo painel de <strong>Unidades & Usuários</strong>.
+              </div>
             </div>
           </div>
 
@@ -403,6 +477,76 @@ export default function LoginPage() {
               disabled={recoveryLoading}
             >
               {recoveryLoading ? "Enviando solicitação..." : "Enviar Solicitação"}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* MODAL DE DEFINIÇÃO DE NOVA SENHA (VIA RECOVERY TOKEN/LINK) */}
+      <Dialog
+        open={isResetPasswordOpen}
+        onOpenChange={setIsResetPasswordOpen}
+        title="Definir Nova Senha de Acesso"
+        description="Você acessou através de um link de recuperação. Crie uma nova senha de acesso institucional."
+        maxWidth="md"
+      >
+        <form onSubmit={handleUpdateNewPassword} className="space-y-4">
+          {resetError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+              <span>{resetError}</span>
+            </div>
+          )}
+
+          {resetMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-700 flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 mt-0.5" />
+              <span>{resetMsg}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs font-semibold text-[#393C41] block mb-1">
+              Nova Senha de Acesso * (mínimo 6 caracteres)
+            </label>
+            <Input
+              type="password"
+              placeholder="Digite sua nova senha"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-[#393C41] block mb-1">
+              Confirme a Nova Senha *
+            </label>
+            <Input
+              type="password"
+              placeholder="Confirme a nova senha digitada"
+              value={confirmNewPassword}
+              onChange={(e) => setConfirmNewPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#F0F1F3]">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsResetPasswordOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              disabled={resetLoading}
+            >
+              {resetLoading ? "Salvando..." : "Salvar Nova Senha"}
             </Button>
           </div>
         </form>
