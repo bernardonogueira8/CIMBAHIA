@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import {
   PlusCircle,
   Trash2,
@@ -24,6 +24,7 @@ import {
   Pill,
   BookOpen,
   Eye,
+  RotateCcw,
 } from "lucide-react";
 import { useApp } from "@/lib/context/AppContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -112,6 +113,41 @@ export default function NovoAtendimentoPage() {
   const patientDropdownRef = useRef<HTMLDivElement>(null);
   const cidDropdownRef = useRef<HTMLDivElement>(null);
   const medDropdownRef = useRef<HTMLDivElement>(null);
+
+  const pathname = usePathname();
+
+  // Função central para zerar completamente todos os dados do formulário
+  const resetForm = useCallback(() => {
+    setSelectedPatient(null);
+    setPatientSearchTerm("");
+    setIsPatientDropdownOpen(false);
+    setConsultationDate(new Date().toISOString().split("T")[0]);
+    setPrimaryCidId("");
+    setCidSearchTerm("");
+    setIsCidDropdownOpen(false);
+    setSelectedMedicationIds([]);
+    setMedSearchTerm("");
+    setIsMedDropdownOpen(false);
+    setIsGuidanceOnly(false);
+    setIsNewPatient(false);
+    setInterventionsCount(0);
+    setPharmaceuticalDischarge(false);
+    setClinicalNotes("");
+    setPrfs([]);
+    setResolvedPrfsHistory([]);
+    setIsResolvedPrfsModalOpen(false);
+    setShowTimeline(false);
+    setErrorMsg("");
+    setIsSaving(false);
+  }, []);
+
+  // Garante que, ao entrar ou retornar à página de Novo Atendimento, ela sempre comece zerada
+  useEffect(() => {
+    resetForm();
+    return () => {
+      resetForm();
+    };
+  }, [pathname, resetForm]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -227,12 +263,7 @@ export default function NovoAtendimentoPage() {
   };
 
   const handleClearPatient = () => {
-    setSelectedPatient(null);
-    setPrimaryCidId("");
-    setSelectedMedicationIds([]);
-    setPrfs([]);
-    setResolvedPrfsHistory([]);
-    setIsNewPatient(false);
+    resetForm();
   };
 
   // 2. Autocomplete de CID-10 (apenas CIDs ativos para novas seleções)
@@ -398,7 +429,8 @@ export default function NovoAtendimentoPage() {
       prfs: prfs,
     });
 
-    setIsSaving(false);
+    // Zera o formulário para que a próxima abertura de Novo Atendimento inicie vazia
+    resetForm();
     router.push("/atendimentos");
   };
 
@@ -1286,26 +1318,43 @@ P: Mantida posologia, agendado retorno para 60 dias..."
         </Card>
 
         {/* Botões de Ação */}
-        <div className="flex items-center justify-end gap-3 pt-2 pb-12 border-t border-[#E5E7EB]">
+        <div className="flex items-center justify-between gap-3 pt-2 pb-12 border-t border-[#E5E7EB]">
           <Button
             type="button"
             variant="outline"
             size="md"
-            onClick={() => router.push("/atendimentos")}
+            onClick={resetForm}
+            className="text-xs text-[#5C5E62] hover:text-[#171A20] border-[#D1D5DB]"
+            title="Limpar todos os campos e reiniciar o atendimento"
           >
-            Cancelar
+            <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+            Limpar Formulário
           </Button>
 
-          <Button
-            type="submit"
-            variant="primary"
-            size="md"
-            disabled={isSaving}
-            className="bg-[#E82127] hover:bg-[#C91A20] active:bg-[#A8151A] text-white font-semibold text-sm shadow-md"
-          >
-            <CheckCircle2 className="w-4 h-4 mr-1.5" />
-            {isSaving ? "Gravando Atendimento..." : "Salvar Atendimento Clínico"}
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="md"
+              onClick={() => {
+                resetForm();
+                router.push("/atendimentos");
+              }}
+            >
+              Cancelar
+            </Button>
+
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              disabled={isSaving}
+              className="bg-[#E82127] hover:bg-[#C91A20] active:bg-[#A8151A] text-white font-semibold text-sm shadow-md"
+            >
+              <CheckCircle2 className="w-4 h-4 mr-1.5" />
+              {isSaving ? "Gravando Atendimento..." : "Salvar Atendimento Clínico"}
+            </Button>
+          </div>
         </div>
       </form>
 

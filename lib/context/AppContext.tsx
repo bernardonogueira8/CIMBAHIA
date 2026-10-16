@@ -65,6 +65,10 @@ interface AppContextType {
   addPatient: (patient: Omit<Patient, "id" | "created_at">) => Patient;
   updatePatient: (id: string, patient: Partial<Patient>) => void;
   addConsultation: (consultation: Omit<Consultation, "id" | "created_at">) => Consultation;
+  updateConsultation: (
+    consultationId: string,
+    data: Partial<Omit<Consultation, "id">>
+  ) => Promise<{ success: boolean; error?: string }>;
   updateMonthlyData: (data: Omit<MonthlyComplementaryData, "id" | "updated_at">) => void;
   addCID: (cid: Omit<CID, "id">) => Promise<CID>;
   updateCID: (
@@ -195,10 +199,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const [authChecked, setAuthChecked] = useState<boolean>(false);
 
-  // Unidade sendo visualizada (padrão a própria unidade do usuário ou primeira unidade cadastrada)
+  // Unidade sendo visualizada (padrão a própria unidade do usuário ou 'all' para administradores)
   const [selectedUnitId, setSelectedUnitId] = useState<string>(() => {
     const storedUser = getStoredOrDefault<Profile | null>("currentUser", null);
-    return storedUser?.unit_id || "11111111-1111-1111-1111-111111111111";
+    if (!storedUser || storedUser.role === "admin" || !storedUser.unit_id) {
+      return "all";
+    }
+    return storedUser.unit_id;
   });
 
   // Sincronização e Carga de dados a partir do Supabase
@@ -350,6 +357,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               setIsAuthenticated(true);
               if (dbProfile.unit_id) {
                 setSelectedUnitId(dbProfile.unit_id);
+              } else {
+                setSelectedUnitId("all");
               }
               await refreshFromSupabase();
               setAuthChecked(true);
@@ -752,6 +761,57 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     return newConsultation;
+  };
+
+  const updateConsultation = async (
+    consultationId: string,
+    data: Partial<Omit<Consultation, "id">>
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      setConsultations((prev) =>
+        prev.map((c) => {
+          if (c.id !== consultationId) return c;
+          return {
+            ...c,
+            ...data,
+            updated_at: new Date().toISOString(),
+          };
+        })
+      );
+
+      const client = supabase;
+      if (!isDemoMode && isSupabaseConfigured && client) {
+        const updatePayload: Record<string, any> = {
+          updated_at: new Date().toISOString(),
+        };
+        if (data.unit_id !== undefined) updatePayload.unit_id = data.unit_id;
+        if (data.consultation_date !== undefined) updatePayload.consultation_date = data.consultation_date;
+        if (data.pharmacist_id !== undefined) updatePayload.pharmacist_id = data.pharmacist_id;
+        if (data.primary_cid_id !== undefined) updatePayload.primary_cid_id = data.primary_cid_id;
+        if (data.is_pharmaceutical_guidance_only !== undefined)
+          updatePayload.is_pharmaceutical_guidance_only = data.is_pharmaceutical_guidance_only;
+        if (data.is_new_patient !== undefined) updatePayload.is_new_patient = data.is_new_patient;
+        if (data.interventions_count !== undefined) updatePayload.interventions_count = data.interventions_count;
+        if (data.pharmaceutical_discharge !== undefined)
+          updatePayload.pharmaceutical_discharge = data.pharmaceutical_discharge;
+        if (data.clinical_notes !== undefined) updatePayload.clinical_notes = data.clinical_notes;
+
+        const { error } = await client
+          .from("consultations")
+          .update(updatePayload)
+          .eq("id", consultationId);
+
+        if (error) {
+          console.error("Erro ao atualizar atendimento no Supabase:", error);
+          return { success: false, error: error.message };
+        }
+      }
+
+      await refreshFromSupabase();
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || "Erro inesperado ao atualizar atendimento." };
+    }
   };
 
   const updateMonthlyData = (
@@ -1290,6 +1350,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addPatient,
         updatePatient,
         addConsultation,
+        updateConsultation,
         updateMonthlyData,
         addCID,
         updateCID,
