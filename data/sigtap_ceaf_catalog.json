@@ -1,0 +1,347 @@
+{
+  "competency": "Competência Atual",
+  "generatedAt": "2026-10-16T14:00:52.232Z",
+  "totals": {
+    "ceafMedications": 26,
+    "pcdtCids": 15,
+    "pcdtRelations": 41
+  },
+  "medications": [
+    {
+      "sigtap_code": "0604380014",
+      "name": "Adalimumabe 40 mg/0,8 mL (por Frasco-Ampola Ou Seringa Preenchida) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "M05.8",
+        "M06.0",
+        "M45",
+        "L40.0",
+        "L40.5",
+        "K50.0",
+        "K50.1",
+        "K51.0"
+      ]
+    },
+    {
+      "sigtap_code": "0604320011",
+      "name": "Infliximabe 100 mg (por Frasco-Ampola) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "K50.0",
+        "K50.1",
+        "K51.0",
+        "M05.8"
+      ]
+    },
+    {
+      "sigtap_code": "0604380022",
+      "name": "Etanercepte 50 mg (por Frasco-Ampola Ou Seringa Preenchida) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "M05.8",
+        "M45",
+        "L40.0"
+      ]
+    },
+    {
+      "sigtap_code": "0604470013",
+      "name": "Golimumabe 50 mg/0,5 mL (por Caneta Aplicadora Ou Seringa Preenchida) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "M05.8",
+        "M45"
+      ]
+    },
+    {
+      "sigtap_code": "0604530016",
+      "name": "Ustequinumabe 45 mg/0,5 mL (por Frasco-Ampola) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "L40.0",
+        "K50.0"
+      ]
+    },
+    {
+      "sigtap_code": "0604380049",
+      "name": "Secuquinumabe 150 mg/mL (por Caneta Aplicadora Ou Seringa Preenchida) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "L40.0",
+        "M45"
+      ]
+    },
+    {
+      "sigtap_code": "0604720010",
+      "name": "Tocilizumabe 20 mg/mL (por Frasco-Ampola De 4 mL/10 mL/20 mL) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "M05.8"
+      ]
+    },
+    {
+      "sigtap_code": "0604610010",
+      "name": "Baricitinibe 2 mg (por Comprimido) 101",
+      "pharmaceutical_form": "Comprimido",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "M05.8"
+      ]
+    },
+    {
+      "sigtap_code": "0604610028",
+      "name": "Baricitinibe 4 mg (por Comprimido) 101",
+      "pharmaceutical_form": "Comprimido",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "M05.8"
+      ]
+    },
+    {
+      "sigtap_code": "0604620015",
+      "name": "Tofacitinibe 5 mg (por Comprimido) 101",
+      "pharmaceutical_form": "Comprimido",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "M05.8",
+        "L40.5"
+      ]
+    },
+    {
+      "sigtap_code": "0604410010",
+      "name": "Fingolimode 0,5 mg (por Capsula) 101",
+      "pharmaceutical_form": "Cápsula",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "G35"
+      ]
+    },
+    {
+      "sigtap_code": "0604430011",
+      "name": "Natalizumabe 300 mg/15 mL (por Frasco-Ampola) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "G35"
+      ]
+    },
+    {
+      "sigtap_code": "0604750016",
+      "name": "Ocrelizumabe 300 mg/10 mL (por Frasco-Ampola) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "G35"
+      ]
+    },
+    {
+      "sigtap_code": "0604270014",
+      "name": "Micofenolato De Mofetila 500 mg (por Comprimido) 101",
+      "pharmaceutical_form": "Comprimido",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "M32.1"
+      ]
+    },
+    {
+      "sigtap_code": "0604290015",
+      "name": "Tacrolimo 1 mg (por Capsula) 101",
+      "pharmaceutical_form": "Cápsula",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "M32.1"
+      ]
+    },
+    {
+      "sigtap_code": "0604290023",
+      "name": "Tacrolimo 5 mg (por Capsula) 101",
+      "pharmaceutical_form": "Cápsula",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": []
+    },
+    {
+      "sigtap_code": "0604010012",
+      "name": "Ciclosporina 50 mg (por Capsula) 101",
+      "pharmaceutical_form": "Cápsula",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "M32.1"
+      ]
+    },
+    {
+      "sigtap_code": "0604010020",
+      "name": "Ciclosporina 100 mg (por Capsula) 101",
+      "pharmaceutical_form": "Cápsula",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "M32.1"
+      ]
+    },
+    {
+      "sigtap_code": "0604350018",
+      "name": "Somatropina 12 UI (por Frasco-Ampola) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "E23.0"
+      ]
+    },
+    {
+      "sigtap_code": "0604350026",
+      "name": "Somatropina 30 UI (por Frasco-Ampola) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "E23.0"
+      ]
+    },
+    {
+      "sigtap_code": "0604040019",
+      "name": "Alfaepoetina 4.000 UI (por Frasco-Ampola) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "N18.0"
+      ]
+    },
+    {
+      "sigtap_code": "0604040027",
+      "name": "Alfaepoetina 10.000 UI (por Frasco-Ampola) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "N18.0"
+      ]
+    },
+    {
+      "sigtap_code": "0604810019",
+      "name": "Denosumabe 60 mg/mL (por Seringa Preenchida) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "M81.0"
+      ]
+    },
+    {
+      "sigtap_code": "0604850010",
+      "name": "Sofosbuvir 400 mg + Velpatasvir 100 mg (por Comprimido) 101",
+      "pharmaceutical_form": "Comprimido",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "B18.2"
+      ]
+    },
+    {
+      "sigtap_code": "0604100011",
+      "name": "Insulina Glargina 100 UI/mL (por Refil Ou Caneta) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "E10.9"
+      ]
+    },
+    {
+      "sigtap_code": "0604100020",
+      "name": "Insulina Degludeca 100 UI/mL (por Caneta Aplicadora) 101",
+      "pharmaceutical_form": "Forma farmacêutica padronizada CEAF",
+      "component": "CEAF",
+      "active": true,
+      "compatible_cid_codes": [
+        "E10.9"
+      ]
+    }
+  ],
+  "cids": [
+    {
+      "code": "B18.2",
+      "description": "Hepatite viral cronica C"
+    },
+    {
+      "code": "E10.9",
+      "description": "Diabetes mellitus insulino-dependente sem complicacoes"
+    },
+    {
+      "code": "E23.0",
+      "description": "Hipopituitarismo / Deficiencia do hormonio de crescimento (GH)"
+    },
+    {
+      "code": "G35",
+      "description": "Esclerose multipla"
+    },
+    {
+      "code": "K50.0",
+      "description": "Doenca de Crohn do intestino delgado"
+    },
+    {
+      "code": "K50.1",
+      "description": "Doenca de Crohn do intestino grosso (colon)"
+    },
+    {
+      "code": "K51.0",
+      "description": "Pancolite ulcerativa (Retocolite Ulcerativa)"
+    },
+    {
+      "code": "L40.0",
+      "description": "Psoriase vulgar"
+    },
+    {
+      "code": "L40.5",
+      "description": "Artropatia psoriasica"
+    },
+    {
+      "code": "M05.8",
+      "description": "Outras artrites reumatoides soropositivas"
+    },
+    {
+      "code": "M06.0",
+      "description": "Artrite reumatoide soronegativa"
+    },
+    {
+      "code": "M32.1",
+      "description": "Lupus eritematoso sistemico com comprometimento de orgaos"
+    },
+    {
+      "code": "M45",
+      "description": "Espondilite ancilosante"
+    },
+    {
+      "code": "M81.0",
+      "description": "Osteoporose pos-menopausa com alto risco de fratura"
+    },
+    {
+      "code": "N18.0",
+      "description": "Doenca renal cronica estagio terminal (DRC)"
+    }
+  ]
+}
