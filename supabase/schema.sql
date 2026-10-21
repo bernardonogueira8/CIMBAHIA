@@ -1,6 +1,8 @@
 -- ==============================================================================
 -- CIMBAHIA - CENTRAL INTEGRADA DE REGULAÇÃO E PARECERES FARMACÊUTICOS DA BAHIA
 -- Schema Oficial de Banco de Dados: Supabase / PostgreSQL 15+
+-- Todas as tabelas operacionais e territoriais utilizam o prefixo 'cb_' para
+-- total isolamento e coexistência pacífica com outros sistemas no mesmo banco.
 -- ==============================================================================
 
 -- 0. Extensões essenciais
@@ -8,7 +10,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- Função utilitária para atualização automática de updated_at
-CREATE OR REPLACE FUNCTION public.handle_updated_at()
+CREATE OR REPLACE FUNCTION public.cb_handle_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = now();
@@ -17,11 +19,11 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ==============================================================================
--- 1. ESTRUTURA TERRITORIAL & FEDERATIVA DA BAHIA
+-- 1. ESTRUTURA TERRITORIAL & FEDERATIVA DA BAHIA (cb_*)
 -- ==============================================================================
 
 -- 1.1 Origens da Demanda (SMS, DPE-BA, TJ-BA, Ouvidoria, CIM, MP-BA)
-CREATE TABLE IF NOT EXISTS public.origens (
+CREATE TABLE IF NOT EXISTS public.cb_origens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     sigla TEXT,
@@ -32,7 +34,7 @@ CREATE TABLE IF NOT EXISTS public.origens (
 );
 
 -- 1.2 Macrorregionais e Núcleos Regionais de Saúde (NRS)
-CREATE TABLE IF NOT EXISTS public.nucleos (
+CREATE TABLE IF NOT EXISTS public.cb_nucleos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     code TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
@@ -42,7 +44,7 @@ CREATE TABLE IF NOT EXISTS public.nucleos (
 );
 
 -- 1.3 Diretorias Regionais de Saúde (DIRES)
-CREATE TABLE IF NOT EXISTS public.dires (
+CREATE TABLE IF NOT EXISTS public.cb_dires (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     code TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
@@ -52,32 +54,32 @@ CREATE TABLE IF NOT EXISTS public.dires (
 );
 
 -- 1.4 Bases Regionais de Saúde (BRS)
-CREATE TABLE IF NOT EXISTS public.bases_regionais (
+CREATE TABLE IF NOT EXISTS public.cb_bases_regionais (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
-    nucleo_id UUID REFERENCES public.nucleos(id) ON DELETE SET NULL,
-    dires_id UUID REFERENCES public.dires(id) ON DELETE SET NULL,
+    nucleo_id UUID REFERENCES public.cb_nucleos(id) ON DELETE SET NULL,
+    dires_id UUID REFERENCES public.cb_dires(id) ON DELETE SET NULL,
     active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- 1.5 Municípios da Bahia (417 Municípios)
-CREATE TABLE IF NOT EXISTS public.municipios (
+CREATE TABLE IF NOT EXISTS public.cb_municipios (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     ibge_code TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
-    base_id UUID REFERENCES public.bases_regionais(id) ON DELETE SET NULL,
-    dires_id UUID REFERENCES public.dires(id) ON DELETE SET NULL,
-    nucleo_id UUID REFERENCES public.nucleos(id) ON DELETE SET NULL,
+    base_id UUID REFERENCES public.cb_bases_regionais(id) ON DELETE SET NULL,
+    dires_id UUID REFERENCES public.cb_dires(id) ON DELETE SET NULL,
+    nucleo_id UUID REFERENCES public.cb_nucleos(id) ON DELETE SET NULL,
     population INTEGER,
     active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_municipios_ibge ON public.municipios(ibge_code);
-CREATE INDEX IF NOT EXISTS idx_municipios_name ON public.municipios(name);
+CREATE INDEX IF NOT EXISTS idx_cb_municipios_ibge ON public.cb_municipios(ibge_code);
+CREATE INDEX IF NOT EXISTS idx_cb_municipios_name ON public.cb_municipios(name);
 
--- 1.6 Unidades / Bases Regionais de Saúde (DASF / SESAB)
-CREATE TABLE IF NOT EXISTS public.units (
+-- 1.6 Unidades / Bases Regionais de Saúde (DASF / SESAB - 28 BRS/NRS)
+CREATE TABLE IF NOT EXISTS public.cb_units (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     macroregion TEXT NOT NULL,
@@ -92,18 +94,18 @@ CREATE TABLE IF NOT EXISTS public.units (
 );
 
 -- 1.7 Municípios Atendidos por Unidade (N:N)
-CREATE TABLE IF NOT EXISTS public.unit_served_municipalities (
+CREATE TABLE IF NOT EXISTS public.cb_unit_served_municipalities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    unit_id UUID NOT NULL REFERENCES public.units(id) ON DELETE CASCADE,
-    municipio_id UUID NOT NULL REFERENCES public.municipios(id) ON DELETE CASCADE,
+    unit_id UUID NOT NULL REFERENCES public.cb_units(id) ON DELETE CASCADE,
+    municipio_id UUID NOT NULL REFERENCES public.cb_municipios(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT uk_unit_municipio UNIQUE (unit_id, municipio_id)
+    CONSTRAINT uk_cb_unit_municipio UNIQUE (unit_id, municipio_id)
 );
 
 -- 1.8 Farmacêuticos Responsáveis por Unidade
-CREATE TABLE IF NOT EXISTS public.unit_responsible_pharmacists (
+CREATE TABLE IF NOT EXISTS public.cb_unit_responsible_pharmacists (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    unit_id UUID NOT NULL REFERENCES public.units(id) ON DELETE CASCADE,
+    unit_id UUID NOT NULL REFERENCES public.cb_units(id) ON DELETE CASCADE,
     pharmacist_id UUID,
     full_name TEXT NOT NULL,
     crf TEXT NOT NULL,
@@ -117,13 +119,13 @@ CREATE TABLE IF NOT EXISTS public.unit_responsible_pharmacists (
 -- 2. CONTROLE DE ACESSO & PERFIS DE OPERADORES (RBAC)
 -- ==============================================================================
 
-CREATE TABLE IF NOT EXISTS public.profiles (
-    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS public.cb_profiles (
+    id UUID PRIMARY KEY,
     full_name TEXT NOT NULL,
-    email TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
     crf TEXT,
     phone TEXT,
-    unit_id UUID REFERENCES public.units(id) ON DELETE SET NULL,
+    unit_id UUID REFERENCES public.cb_units(id) ON DELETE SET NULL,
     role TEXT NOT NULL CHECK (role IN ('admin', 'farmaceutico', 'administrativo', 'gestor', 'pharmacist', 'viewer')) DEFAULT 'farmaceutico',
     active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -134,7 +136,10 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 -- 3. CATÁLOGOS CLÍNICOS E TERAPÊUTICOS
 -- ==============================================================================
 
--- 3.1 Catálogo de CIDs-10
+-- 3.1 CIDs e Medicamentos Compartilhados (Reaproveitados da Base Existente)
+-- As tabelas public.cids, public.medications e public.medication_authorized_cids
+-- são compartilhadas globalmente e consultadas diretamente pelo sistema.
+-- Caso ainda não existam no banco, criamos para garantir autonomia:
 CREATE TABLE IF NOT EXISTS public.cids (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     code TEXT NOT NULL UNIQUE,
@@ -146,7 +151,6 @@ CREATE TABLE IF NOT EXISTS public.cids (
 );
 CREATE INDEX IF NOT EXISTS idx_cids_code ON public.cids(code);
 
--- 3.2 Medicamentos do CEAF (SIGTAP / RENAME)
 CREATE TABLE IF NOT EXISTS public.medications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     sigtap_code TEXT,
@@ -159,7 +163,6 @@ CREATE TABLE IF NOT EXISTS public.medications (
 CREATE INDEX IF NOT EXISTS idx_medications_sigtap_code ON public.medications(sigtap_code);
 CREATE INDEX IF NOT EXISTS idx_medications_name ON public.medications(name);
 
--- 3.3 Relacionamento de Medicamentos Autorizados por CID (SIGTAP / PCDT)
 CREATE TABLE IF NOT EXISTS public.medication_authorized_cids (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     sigtap_code TEXT NOT NULL,
@@ -171,8 +174,8 @@ CREATE TABLE IF NOT EXISTS public.medication_authorized_cids (
 CREATE INDEX IF NOT EXISTS idx_med_auth_cids_code ON public.medication_authorized_cids(sigtap_code);
 CREATE INDEX IF NOT EXISTS idx_med_auth_cids_cid ON public.medication_authorized_cids(cid_code);
 
--- 3.4 Outros Medicamentos (Não Padronizados, Judiciais, Fórmulas Especiais)
-CREATE TABLE IF NOT EXISTS public.other_medications (
+-- 3.2 Outros Medicamentos Específicos do CimBahia (Não Padronizados, Judiciais)
+CREATE TABLE IF NOT EXISTS public.cb_other_medications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     active_ingredient TEXT NOT NULL,
@@ -194,8 +197,8 @@ CREATE TABLE IF NOT EXISTS public.other_medications (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 3.5 Tipos de Parecer Técnico Parametrizados
-CREATE TABLE IF NOT EXISTS public.tipos_parecer (
+-- 3.3 Tipos de Parecer Técnico Parametrizados
+CREATE TABLE IF NOT EXISTS public.cb_tipos_parecer (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     code TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
@@ -206,63 +209,78 @@ CREATE TABLE IF NOT EXISTS public.tipos_parecer (
 );
 
 -- ==============================================================================
--- 4. PACIENTES / REQUERENTES
+-- 4. PACIENTES / REQUERENTES DO CIMBAHIA
 -- ==============================================================================
 
-CREATE TABLE IF NOT EXISTS public.patients (
+CREATE TABLE IF NOT EXISTS public.cb_patients (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    unit_id UUID NOT NULL REFERENCES public.units(id) ON DELETE RESTRICT,
-    cpf TEXT NOT NULL,
+    unit_id UUID REFERENCES public.cb_units(id) ON DELETE SET NULL,
+    cpf TEXT,
+    cpf_not_provided BOOLEAN NOT NULL DEFAULT false,
     cns TEXT,
     full_name TEXT NOT NULL,
     birth_date DATE,
+    gender TEXT,
     phone TEXT,
-    municipality_id UUID REFERENCES public.municipios(id) ON DELETE SET NULL,
+    bairro TEXT,
+    cep TEXT,
+    municipality_id UUID REFERENCES public.cb_municipios(id) ON DELETE SET NULL,
     municipality_name TEXT,
+    is_outside_bahia BOOLEAN NOT NULL DEFAULT false,
+    outside_state_description TEXT,
     status TEXT NOT NULL CHECK (status IN ('em_acompanhamento', 'alta', 'inativo')) DEFAULT 'em_acompanhamento',
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    status_externo TEXT,
+    afsesab_status TEXT,
+    afsesab_status_label TEXT,
+    cadastrado_afsesab BOOLEAN DEFAULT false,
+    created_by UUID REFERENCES public.cb_profiles(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT uk_patients_cpf UNIQUE (cpf)
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_patients_cpf ON public.patients(cpf);
-CREATE INDEX IF NOT EXISTS idx_patients_cns ON public.patients(cns);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cb_patients_cpf_unique ON public.cb_patients(cpf) WHERE cpf IS NOT NULL AND cpf != '' AND cpf_not_provided IS NOT TRUE;
+CREATE INDEX IF NOT EXISTS idx_cb_patients_cpf ON public.cb_patients(cpf);
+CREATE INDEX IF NOT EXISTS idx_cb_patients_cns ON public.cb_patients(cns);
+CREATE INDEX IF NOT EXISTS idx_cb_patients_name ON public.cb_patients(full_name);
 
 -- ==============================================================================
 -- 5. PROCESSOS SEI, WORKFLOW E PARECERES TÉCNICOS
 -- ==============================================================================
 
-CREATE TABLE IF NOT EXISTS public.processos (
+CREATE TABLE IF NOT EXISTS public.cb_processos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     numero_sei TEXT NOT NULL UNIQUE,
     data_abertura DATE NOT NULL DEFAULT CURRENT_DATE,
     assunto TEXT NOT NULL,
-    paciente_id UUID NOT NULL REFERENCES public.patients(id) ON DELETE RESTRICT,
-    origem_id UUID NOT NULL REFERENCES public.origens(id) ON DELETE RESTRICT,
-    municipio_id UUID NOT NULL REFERENCES public.municipios(id) ON DELETE RESTRICT,
-    unidade_id UUID REFERENCES public.units(id) ON DELETE SET NULL,
+    paciente_id UUID NOT NULL REFERENCES public.cb_patients(id) ON DELETE CASCADE,
+    origem_id UUID REFERENCES public.cb_origens(id) ON DELETE SET NULL,
+    origem_nome TEXT,
+    municipio_id UUID REFERENCES public.cb_municipios(id) ON DELETE SET NULL,
+    municipio_nome TEXT,
+    unidade_id UUID REFERENCES public.cb_units(id) ON DELETE SET NULL,
     status TEXT NOT NULL CHECK (status IN (
+        'triagem',
+        'aguardando_parecer',
+        'em_analise',
+        'concluido',
         'aguardando_triagem',
         'em_triagem',
-        'aguardando_parecer',
         'em_analise_farmaceutica',
         'em_exigencia',
-        'concluido',
         'concluido_deferido',
         'concluido_indeferido',
         'concluido_parcial'
-    )) DEFAULT 'aguardando_triagem',
+    )) DEFAULT 'triagem',
     priority TEXT NOT NULL CHECK (priority IN ('normal', 'urgente', 'judicial')) DEFAULT 'normal',
     
     -- Triagem Documental
-    triagem_by_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    triagem_by_id UUID REFERENCES public.cb_profiles(id) ON DELETE SET NULL,
     triagem_by_name TEXT,
     triagem_completed_at TIMESTAMPTZ,
     triagem_notes TEXT,
     triagem_documents_ok BOOLEAN NOT NULL DEFAULT false,
 
     -- Atribuição Farmacêutica
-    assigned_pharmacist_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    assigned_pharmacist_id UUID REFERENCES public.cb_profiles(id) ON DELETE SET NULL,
     assigned_at TIMESTAMPTZ,
 
     -- SLAs & Prazos
@@ -274,44 +292,49 @@ CREATE TABLE IF NOT EXISTS public.processos (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_processos_numero_sei ON public.processos(numero_sei);
-CREATE INDEX IF NOT EXISTS idx_processos_status ON public.processos(status);
-CREATE INDEX IF NOT EXISTS idx_processos_municipio ON public.processos(municipio_id);
+CREATE INDEX IF NOT EXISTS idx_cb_processos_numero_sei ON public.cb_processos(numero_sei);
+CREATE INDEX IF NOT EXISTS idx_cb_processos_status ON public.cb_processos(status);
+CREATE INDEX IF NOT EXISTS idx_cb_processos_municipio ON public.cb_processos(municipio_id);
+CREATE INDEX IF NOT EXISTS idx_cb_processos_paciente ON public.cb_processos(paciente_id);
 
--- 5.1 Itens Solicitados no Processo (Medicamentos CEAF ou Não Padronizados)
-CREATE TABLE IF NOT EXISTS public.processo_items (
+-- 5.1 Itens Solicitados no Processo (Medicamentos CEAF, Outros ou Fármacos Específicos)
+CREATE TABLE IF NOT EXISTS public.cb_processo_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    processo_id UUID NOT NULL REFERENCES public.processos(id) ON DELETE CASCADE,
-    medication_type TEXT NOT NULL CHECK (medication_type IN ('ceaf', 'outro')),
-    medication_id TEXT NOT NULL,
+    processo_id UUID NOT NULL REFERENCES public.cb_processos(id) ON DELETE CASCADE,
+    medication_type TEXT NOT NULL CHECK (medication_type IN ('ceaf', 'outro', 'farmaco')) DEFAULT 'ceaf',
+    medication_id TEXT,
     medication_name TEXT NOT NULL,
-    cid_id UUID NOT NULL REFERENCES public.cids(id) ON DELETE RESTRICT,
+    farmaco_substancia TEXT,
+    cid_id UUID REFERENCES public.cids(id) ON DELETE SET NULL,
     cid_code TEXT NOT NULL,
     cid_description TEXT,
+    cid_nao_informado BOOLEAN NOT NULL DEFAULT false,
     posology TEXT,
     monthly_quantity INTEGER DEFAULT 1,
     status TEXT CHECK (status IN ('deferido', 'indeferido', 'em_exigencia', 'deferido_parcial', 'pendente')) DEFAULT 'pendente',
     justification TEXT,
+    evaluated_at TIMESTAMPTZ,
+    evaluated_by TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_processo_items_processo ON public.processo_items(processo_id);
+CREATE INDEX IF NOT EXISTS idx_cb_processo_items_processo ON public.cb_processo_items(processo_id);
 
 -- 5.2 Pareceres Emitidos e Versionamento de Retificações
-CREATE TABLE IF NOT EXISTS public.pareceres (
+CREATE TABLE IF NOT EXISTS public.cb_pareceres (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    processo_id UUID NOT NULL REFERENCES public.processos(id) ON DELETE CASCADE,
+    processo_id UUID NOT NULL REFERENCES public.cb_processos(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_pareceres_processo ON public.pareceres(processo_id);
+CREATE INDEX IF NOT EXISTS idx_cb_pareceres_processo ON public.cb_pareceres(processo_id);
 
-CREATE TABLE IF NOT EXISTS public.parecer_versoes (
+CREATE TABLE IF NOT EXISTS public.cb_parecer_versoes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    parecer_id UUID NOT NULL REFERENCES public.pareceres(id) ON DELETE CASCADE,
+    parecer_id UUID NOT NULL REFERENCES public.cb_pareceres(id) ON DELETE CASCADE,
     version_number INTEGER NOT NULL DEFAULT 1,
-    pharmacist_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
+    pharmacist_id UUID REFERENCES public.cb_profiles(id) ON DELETE SET NULL,
     pharmacist_name TEXT NOT NULL,
     crf TEXT NOT NULL,
-    tipo_parecer_id UUID REFERENCES public.tipos_parecer(id) ON DELETE SET NULL,
+    tipo_parecer_id UUID REFERENCES public.cb_tipos_parecer(id) ON DELETE SET NULL,
     tipo_parecer_title TEXT NOT NULL,
     regulatory_effect TEXT NOT NULL,
     technical_justification TEXT NOT NULL,
@@ -320,14 +343,14 @@ CREATE TABLE IF NOT EXISTS public.parecer_versoes (
     rectification_reason TEXT,
     signature_hash TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT uk_parecer_version UNIQUE (parecer_id, version_number)
+    CONSTRAINT uk_cb_parecer_version UNIQUE (parecer_id, version_number)
 );
-CREATE INDEX IF NOT EXISTS idx_parecer_versoes_parecer ON public.parecer_versoes(parecer_id);
+CREATE INDEX IF NOT EXISTS idx_cb_parecer_versoes_parecer ON public.cb_parecer_versoes(parecer_id);
 
 -- 5.3 Trilha de Auditoria & Tramitação do Processo
-CREATE TABLE IF NOT EXISTS public.processo_historico (
+CREATE TABLE IF NOT EXISTS public.cb_processo_historico (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    processo_id UUID NOT NULL REFERENCES public.processos(id) ON DELETE CASCADE,
+    processo_id UUID NOT NULL REFERENCES public.cb_processos(id) ON DELETE CASCADE,
     from_status TEXT,
     to_status TEXT NOT NULL,
     user_id TEXT NOT NULL,
@@ -335,95 +358,90 @@ CREATE TABLE IF NOT EXISTS public.processo_historico (
     notes TEXT,
     timestamp TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_processo_historico_processo ON public.processo_historico(processo_id);
+CREATE INDEX IF NOT EXISTS idx_cb_processo_historico_processo ON public.cb_processo_historico(processo_id);
 
 -- ==============================================================================
--- 6. TRIGGERS DE ATUALIZAÇÃO AUTOMÁTICA
+-- 6. TRIGGERS DE ATUALIZAÇÃO AUTOMÁTICA (cb_*)
 -- ==============================================================================
 
-DROP TRIGGER IF EXISTS trigger_origens_updated_at ON public.origens;
-CREATE TRIGGER trigger_origens_updated_at BEFORE UPDATE ON public.origens FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+DROP TRIGGER IF EXISTS trigger_cb_origens_updated_at ON public.cb_origens;
+CREATE TRIGGER trigger_cb_origens_updated_at BEFORE UPDATE ON public.cb_origens FOR EACH ROW EXECUTE FUNCTION public.cb_handle_updated_at();
 
-DROP TRIGGER IF EXISTS trigger_units_updated_at ON public.units;
-CREATE TRIGGER trigger_units_updated_at BEFORE UPDATE ON public.units FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+DROP TRIGGER IF EXISTS trigger_cb_units_updated_at ON public.cb_units;
+CREATE TRIGGER trigger_cb_units_updated_at BEFORE UPDATE ON public.cb_units FOR EACH ROW EXECUTE FUNCTION public.cb_handle_updated_at();
 
-DROP TRIGGER IF EXISTS trigger_profiles_updated_at ON public.profiles;
-CREATE TRIGGER trigger_profiles_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+DROP TRIGGER IF EXISTS trigger_cb_profiles_updated_at ON public.cb_profiles;
+CREATE TRIGGER trigger_cb_profiles_updated_at BEFORE UPDATE ON public.cb_profiles FOR EACH ROW EXECUTE FUNCTION public.cb_handle_updated_at();
 
-DROP TRIGGER IF EXISTS trigger_other_medications_updated_at ON public.other_medications;
-CREATE TRIGGER trigger_other_medications_updated_at BEFORE UPDATE ON public.other_medications FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+DROP TRIGGER IF EXISTS trigger_cb_other_medications_updated_at ON public.cb_other_medications;
+CREATE TRIGGER trigger_cb_other_medications_updated_at BEFORE UPDATE ON public.cb_other_medications FOR EACH ROW EXECUTE FUNCTION public.cb_handle_updated_at();
 
-DROP TRIGGER IF EXISTS trigger_patients_updated_at ON public.patients;
-CREATE TRIGGER trigger_patients_updated_at BEFORE UPDATE ON public.patients FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+DROP TRIGGER IF EXISTS trigger_cb_patients_updated_at ON public.cb_patients;
+CREATE TRIGGER trigger_cb_patients_updated_at BEFORE UPDATE ON public.cb_patients FOR EACH ROW EXECUTE FUNCTION public.cb_handle_updated_at();
 
-DROP TRIGGER IF EXISTS trigger_processos_updated_at ON public.processos;
-CREATE TRIGGER trigger_processos_updated_at BEFORE UPDATE ON public.processos FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+DROP TRIGGER IF EXISTS trigger_cb_processos_updated_at ON public.cb_processos;
+CREATE TRIGGER trigger_cb_processos_updated_at BEFORE UPDATE ON public.cb_processos FOR EACH ROW EXECUTE FUNCTION public.cb_handle_updated_at();
 
 -- ==============================================================================
 -- 7. POLÍTICAS DE SEGURANÇA (ROW LEVEL SECURITY - RLS)
 -- ==============================================================================
 
-ALTER TABLE public.origens ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.nucleos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.dires ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.bases_regionais ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.municipios ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.units ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.unit_served_municipalities ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.unit_responsible_pharmacists ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.cids ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.medications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.medication_authorized_cids ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.other_medications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.tipos_parecer ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.patients ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.processos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.processo_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.pareceres ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.parecer_versoes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.processo_historico ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_origens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_nucleos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_dires ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_bases_regionais ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_municipios ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_units ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_unit_served_municipalities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_unit_responsible_pharmacists ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_other_medications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_tipos_parecer ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_patients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_processos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_processo_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_pareceres ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_parecer_versoes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_processo_historico ENABLE ROW LEVEL SECURITY;
 
--- Políticas de Leitura para Usuários Autenticados
-CREATE POLICY "Permitir leitura para usuarios autenticados em origens" ON public.origens FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em nucleos" ON public.nucleos FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em dires" ON public.dires FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em bases" ON public.bases_regionais FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em municipios" ON public.municipios FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em units" ON public.units FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em unit_served_municipalities" ON public.unit_served_municipalities FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em unit_responsible_pharmacists" ON public.unit_responsible_pharmacists FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em profiles" ON public.profiles FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em cids" ON public.cids FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em medications" ON public.medications FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em medication_authorized_cids" ON public.medication_authorized_cids FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em other_medications" ON public.other_medications FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em tipos_parecer" ON public.tipos_parecer FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em patients" ON public.patients FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em processos" ON public.processos FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em processo_items" ON public.processo_items FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em pareceres" ON public.pareceres FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em parecer_versoes" ON public.parecer_versoes FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura para usuarios autenticados em processo_historico" ON public.processo_historico FOR SELECT TO authenticated USING (true);
+-- Políticas de Leitura
+CREATE POLICY "Permitir leitura cb_origens" ON public.cb_origens FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_nucleos" ON public.cb_nucleos FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_dires" ON public.cb_dires FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_bases" ON public.cb_bases_regionais FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_municipios" ON public.cb_municipios FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_units" ON public.cb_units FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_unit_served_municipalities" ON public.cb_unit_served_municipalities FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_unit_responsible_pharmacists" ON public.cb_unit_responsible_pharmacists FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_profiles" ON public.cb_profiles FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_other_medications" ON public.cb_other_medications FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_tipos_parecer" ON public.cb_tipos_parecer FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_patients" ON public.cb_patients FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_processos" ON public.cb_processos FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_processo_items" ON public.cb_processo_items FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_pareceres" ON public.cb_pareceres FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_parecer_versoes" ON public.cb_parecer_versoes FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Permitir leitura cb_processo_historico" ON public.cb_processo_historico FOR SELECT TO authenticated, anon USING (true);
 
--- Políticas de Escrita para Usuários Autenticados
-CREATE POLICY "Permitir escrita para usuarios autenticados em patients" ON public.patients FOR ALL TO authenticated USING (true);
-CREATE POLICY "Permitir escrita para usuarios autenticados em processos" ON public.processos FOR ALL TO authenticated USING (true);
-CREATE POLICY "Permitir escrita para usuarios autenticados em processo_items" ON public.processo_items FOR ALL TO authenticated USING (true);
-CREATE POLICY "Permitir escrita para usuarios autenticados em pareceres" ON public.pareceres FOR ALL TO authenticated USING (true);
-CREATE POLICY "Permitir escrita para usuarios autenticados em parecer_versoes" ON public.parecer_versoes FOR ALL TO authenticated USING (true);
-CREATE POLICY "Permitir escrita para usuarios autenticados em processo_historico" ON public.processo_historico FOR ALL TO authenticated USING (true);
-CREATE POLICY "Permitir escrita para usuarios autenticados em profiles" ON public.profiles FOR ALL TO authenticated USING (true);
-CREATE POLICY "Permitir escrita para usuarios autenticados em other_medications" ON public.other_medications FOR ALL TO authenticated USING (true);
-CREATE POLICY "Permitir escrita para usuarios autenticados em tipos_parecer" ON public.tipos_parecer FOR ALL TO authenticated USING (true);
-CREATE POLICY "Permitir escrita para usuarios autenticados em units" ON public.units FOR ALL TO authenticated USING (true);
+-- Políticas de Escrita
+CREATE POLICY "Permitir escrita cb_patients" ON public.cb_patients FOR ALL TO authenticated, anon USING (true);
+CREATE POLICY "Permitir escrita cb_processos" ON public.cb_processos FOR ALL TO authenticated, anon USING (true);
+CREATE POLICY "Permitir escrita cb_processo_items" ON public.cb_processo_items FOR ALL TO authenticated, anon USING (true);
+CREATE POLICY "Permitir escrita cb_pareceres" ON public.cb_pareceres FOR ALL TO authenticated, anon USING (true);
+CREATE POLICY "Permitir escrita cb_parecer_versoes" ON public.cb_parecer_versoes FOR ALL TO authenticated, anon USING (true);
+CREATE POLICY "Permitir escrita cb_processo_historico" ON public.cb_processo_historico FOR ALL TO authenticated, anon USING (true);
+CREATE POLICY "Permitir escrita cb_profiles" ON public.cb_profiles FOR ALL TO authenticated, anon USING (true);
+CREATE POLICY "Permitir escrita cb_other_medications" ON public.cb_other_medications FOR ALL TO authenticated, anon USING (true);
+CREATE POLICY "Permitir escrita cb_tipos_parecer" ON public.cb_tipos_parecer FOR ALL TO authenticated, anon USING (true);
+CREATE POLICY "Permitir escrita cb_units" ON public.cb_units FOR ALL TO authenticated, anon USING (true);
+CREATE POLICY "Permitir escrita cb_origens" ON public.cb_origens FOR ALL TO authenticated, anon USING (true);
 
 -- ==============================================================================
 -- 8. CARGA DE DADOS INICIAIS (SEED INSTITUCIONAL SESAB / CIMBAHIA)
 -- ==============================================================================
 
 -- 8.1 Origens da Demanda
-INSERT INTO public.origens (id, name, sigla, description, active) VALUES
+INSERT INTO public.cb_origens (id, name, sigla, description, active) VALUES
     ('00000000-0000-0000-0000-000000000001', 'Secretaria Municipal de Saúde (SMS)', 'SMS', 'Demandas originadas pelas secretarias municipais de saúde da Bahia', true),
     ('00000000-0000-0000-0000-000000000002', 'Defensoria Pública do Estado da Bahia', 'DPE-BA', 'Atendimento pré-processual ou pedidos de conciliação de saúde', true),
     ('00000000-0000-0000-0000-000000000003', 'Tribunal de Justiça da Bahia / Mandado Judicial', 'TJ-BA', 'Determinações judiciais de fornecimento de medicamentos', true),
@@ -433,7 +451,7 @@ INSERT INTO public.origens (id, name, sigla, description, active) VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- 8.2 Núcleos Regionais de Saúde (NRS)
-INSERT INTO public.nucleos (id, code, name, macroregion, active) VALUES
+INSERT INTO public.cb_nucleos (id, code, name, macroregion, active) VALUES
     ('10000000-0000-0000-0000-000000000001', 'NRS-LESTE', 'NRS Leste / Salvador', 'Macrorregional Leste', true),
     ('10000000-0000-0000-0000-000000000002', 'NRS-CENTRO-LESTE', 'NRS Centro-Leste (Feira de Santana)', 'Macrorregional Centro-Leste', true),
     ('10000000-0000-0000-0000-000000000003', 'NRS-NORTE', 'NRS Norte (Juazeiro / Paulo Afonso)', 'Macrorregional Norte', true),
@@ -443,7 +461,7 @@ INSERT INTO public.nucleos (id, code, name, macroregion, active) VALUES
 ON CONFLICT (code) DO NOTHING;
 
 -- 8.3 DIRES
-INSERT INTO public.dires (id, code, name, region, active) VALUES
+INSERT INTO public.cb_dires (id, code, name, region, active) VALUES
     ('20000000-0000-0000-0000-000000000001', '1ª DIRES', '1ª Diretoria Regional de Saúde - Salvador', 'Leste', true),
     ('20000000-0000-0000-0000-000000000002', '2ª DIRES', '2ª Diretoria Regional de Saúde - Feira de Santana', 'Centro-Leste', true),
     ('20000000-0000-0000-0000-000000000003', '3ª DIRES', '3ª Diretoria Regional de Saúde - Alagoinhas', 'Nordeste', true),
@@ -453,7 +471,7 @@ INSERT INTO public.dires (id, code, name, region, active) VALUES
 ON CONFLICT (code) DO NOTHING;
 
 -- 8.4 Tipos de Parecer Técnico
-INSERT INTO public.tipos_parecer (id, code, title, regulatory_effect, description, active) VALUES
+INSERT INTO public.cb_tipos_parecer (id, code, title, regulatory_effect, description, active) VALUES
     ('30000000-0000-0000-0000-000000000001', 'TP-DEF-INT', 'Deferido Integralmente', 'deferido', 'Atende a todos os critérios de inclusão clínicos e documentais do PCDT', true),
     ('30000000-0000-0000-0000-000000000002', 'TP-IND-CRIT', 'Indeferido por Não Preenchimento de Critérios', 'indeferido', 'Não atende aos critérios técnicos de inclusão ou apresenta contraindicação clínica', true),
     ('30000000-0000-0000-0000-000000000003', 'TP-EXIG-DOC', 'Em Exigência de Documentos / Laudos', 'exigencia', 'Necessária complementação de exames obrigatórios, laudos ou reavaliação médica', true),
@@ -462,7 +480,7 @@ INSERT INTO public.tipos_parecer (id, code, title, regulatory_effect, descriptio
 ON CONFLICT (code) DO NOTHING;
 
 -- 8.5 Unidades Principais da Bahia
-INSERT INTO public.units (id, name, macroregion, cnes, municipality, email, phone, address, active) VALUES
+INSERT INTO public.cb_units (id, name, macroregion, cnes, municipality, email, phone, address, active) VALUES
     ('11111111-1111-1111-1111-111111111111', 'Base Regional de Saúde Paulo Afonso', 'Macrorregional Norte', '2801452', 'Paulo Afonso', 'brs.pauloafonso@saude.ba.gov.br', '(75) 3281-4450', 'Rua das Laranjeiras, 140 - Centro, Paulo Afonso - BA', true),
     ('22222222-2222-2222-2222-222222222222', 'Base Regional de Saúde Juazeiro', 'Macrorregional Norte', '2801460', 'Juazeiro', 'brs.juazeiro@saude.ba.gov.br', '(74) 3611-8890', 'Av. Adolfo Viana, 520 - São Geraldo, Juazeiro - BA', true),
     ('33333333-3333-3333-3333-333333333333', 'Base Regional de Saúde Feira de Santana', 'Macrorregional Centro-Leste', '2801479', 'Feira de Santana', 'brs.feira@saude.ba.gov.br', '(75) 3602-5500', 'Av. Maria Quitéria, 1200 - Kalilândia, Feira de Santana - BA', true),

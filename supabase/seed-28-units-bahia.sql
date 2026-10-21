@@ -1,10 +1,10 @@
 -- ==============================================================================
 -- CIMBAHIA: SEED DE TODAS AS 28 UNIDADES / BASES REGIONAIS DE SAÚDE DA BAHIA
 -- Dados cadastrais de contato zerados para preenchimento manual
--- Tabela: public.units
+-- Tabela: public.cb_units
 -- ==============================================================================
 
-INSERT INTO public.units (id, name, macroregion, municipality, email, phone, address, active)
+INSERT INTO public.cb_units (id, name, macroregion, municipality, email, phone, address, active)
 VALUES
   ('55d18b90-f94b-5d55-a1ea-3b0f1ac10ac5', 'BRS Brumado', 'Sudoeste', 'Brumado', '', '', '', true),
   ('8adabe96-5f65-5296-bc05-c00a25d2c6ed', 'BRS Camaçari', 'Leste', 'Camaçari', '', '', '', true),

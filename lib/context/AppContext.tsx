@@ -19,6 +19,7 @@ import {
   Municipio,
   Processo,
   ProcessoStatus,
+  Parecer,
   ParecerVersao,
   Farmaco,
   isProcessoInFirstStatus,
@@ -241,6 +242,11 @@ function saveToStorage<T>(key: string, value: T) {
   }
 }
 
+function isValidUUID(val: string | null | undefined): boolean {
+  if (!val) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+}
+
 function mergeOfficialUnits(remoteUnits: Unit[]): Unit[] {
   const merged: Unit[] = INITIAL_UNITS.map((u) => ({
     ...u,
@@ -389,22 +395,58 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setIsSyncing(true);
 
       // 1. Unidades, CIDs, Medicamentos e Profiles (Metadados públicos/cadastrais de referência)
-      const [unitsRes, cidsRes, medsRes, relsRes, profilesRes] = await Promise.all([
-        supabase.from("units").select("*").order("name"),
+      const [
+        cbUnitsRes,
+        cidsRes,
+        medsRes,
+        relsRes,
+        cbProfilesRes,
+        origensRes,
+        tiposRes,
+        otherMedsRes,
+      ] = await Promise.all([
+        supabase.from("cb_units").select("*").order("name"),
         supabase.from("cids").select("*").order("code"),
         supabase.from("medications").select("*").order("name"),
         supabase.from("medication_authorized_cids").select("sigtap_code, cid_code"),
-        supabase.from("profiles").select("*"),
+        supabase.from("cb_profiles").select("*"),
+        supabase.from("cb_origens").select("*").order("name"),
+        supabase.from("cb_tipos_parecer").select("*").order("title"),
+        supabase.from("cb_other_medications").select("*").order("name"),
       ]);
 
-      if (unitsRes.data && unitsRes.data.length > 0) {
-        setUnits(mergeOfficialUnits(unitsRes.data));
+      if (cbUnitsRes.data && cbUnitsRes.data.length > 0) {
+        setUnits(mergeOfficialUnits(cbUnitsRes.data));
+      } else {
+        const fallbackUnits = await supabase.from("units").select("*").order("name");
+        if (fallbackUnits.data && fallbackUnits.data.length > 0) {
+          setUnits(mergeOfficialUnits(fallbackUnits.data));
+        }
       }
+
       if (cidsRes.data && cidsRes.data.length > 0) {
         setCids(cidsRes.data);
       }
-      if (profilesRes.data && profilesRes.data.length > 0) {
-        setProfiles(profilesRes.data);
+
+      if (cbProfilesRes.data && cbProfilesRes.data.length > 0) {
+        setProfiles(cbProfilesRes.data);
+      } else {
+        const fallbackProfiles = await supabase.from("profiles").select("*");
+        if (fallbackProfiles.data && fallbackProfiles.data.length > 0) {
+          setProfiles(fallbackProfiles.data);
+        }
+      }
+
+      if (origensRes.data && origensRes.data.length > 0) {
+        setOrigens(origensRes.data);
+      }
+
+      if (tiposRes.data && tiposRes.data.length > 0) {
+        setTiposParecer(tiposRes.data);
+      }
+
+      if (otherMedsRes.data && otherMedsRes.data.length > 0) {
+        setOtherMedications(otherMedsRes.data);
       }
 
       // Mapeamento de CIDs compatíveis nos medicamentos
@@ -426,54 +468,65 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setMedications(hydratedMeds);
       }
 
-      // 2. Dados Sensíveis (Pacientes, Consultas, Fechamento Mensal):
-      // NUNCA carregar se estiver em modo de demonstração ou se não houver usuário autenticado no Supabase
+      // 2. Dados Operacionais do CimBahia (Pacientes e Processos SEI da tabela cb_*)
       const isDemo = getStoredOrDefault("isDemoMode", false);
       if (!isDemo) {
-        const { data: authData } = await supabase.auth.getSession();
-        if (authData?.session) {
-          const [patsRes, consRes, monthlyRes] = await Promise.all([
-            supabase.from("patients").select("*").order("full_name"),
-            supabase
-              .from("consultations")
-              .select(`
-                *,
-                consultation_medications (
-                  medication_id,
-                  medications (*)
-                ),
-                consultation_prfs (*)
-              `)
-              .order("consultation_date", { ascending: false }),
-            supabase.from("monthly_complementary_data").select("*"),
-          ]);
+        const { data: patsData } = await supabase
+          .from("cb_patients")
+          .select("*")
+          .order("full_name");
+        if (patsData && patsData.length > 0) {
+          setPatients(patsData);
+        }
 
-          setPatients(patsRes.data || []);
+        const { data: procsData } = await supabase
+          .from("cb_processos")
+          .select(`
+            *,
+            items:cb_processo_items (*),
+            pareceres:cb_pareceres (
+              *,
+              versoes:cb_parecer_versoes (*)
+            ),
+            historico:cb_processo_historico (*)
+          `)
+          .order("created_at", { ascending: false });
 
-          if (consRes.data) {
-            const mappedCons: Consultation[] = consRes.data.map((c: any) => ({
-              ...c,
-              medications: (c.consultation_medications || [])
-                .map((cm: any) => cm.medications)
-                .filter(Boolean),
-              prfs: c.consultation_prfs || [],
-            }));
-            setConsultations(mappedCons);
-          } else {
-            setConsultations([]);
-          }
+        if (procsData && procsData.length > 0) {
+          const mappedProcs: Processo[] = procsData.map((row: any) => {
+            let activeParecer: Parecer | undefined = undefined;
+            if (row.pareceres && row.pareceres.length > 0) {
+              const p = row.pareceres[0];
+              const sortedVersoes: ParecerVersao[] = (p.versoes || []).sort(
+                (a: any, b: any) => b.version_number - a.version_number
+              );
+              if (sortedVersoes.length > 0) {
+                activeParecer = {
+                  id: p.id,
+                  processo_id: row.id,
+                  active_version: sortedVersoes[0],
+                  versions_history: sortedVersoes.slice(1),
+                };
+              }
+            }
 
-          setMonthlyData(monthlyRes.data || []);
-        } else {
-          setPatients([]);
-          setConsultations([]);
-          setMonthlyData([]);
+            return {
+              ...row,
+              items: row.items || [],
+              parecer: activeParecer,
+              historico: (row.historico || []).sort(
+                (a: any, b: any) =>
+                  new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+              ),
+            };
+          });
+          setProcessos(mappedProcs);
         }
       }
 
       setIsSupabaseOnline(true);
     } catch (err) {
-      console.warn("Supabase fetch error, maintaining local state cache:", err);
+      console.warn("Supabase fetch warning, mantendo cache local:", err);
       setIsSupabaseOnline(false);
     } finally {
       setIsSyncing(false);
@@ -507,11 +560,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (isSupabaseConfigured && supabase) {
           const { data: { session } } = await supabase.auth.getSession();
           if (session?.user?.email) {
-            const { data: dbProfile } = await supabase
-              .from("profiles")
-              .select("*, unit:units(*)")
+            let { data: dbProfile } = await supabase
+              .from("cb_profiles")
+              .select("*, unit:cb_units(*)")
               .eq("email", session.user.email)
               .maybeSingle();
+
+            if (!dbProfile) {
+              const { data: legacyProfile } = await supabase
+                .from("profiles")
+                .select("*, unit:units(*)")
+                .eq("email", session.user.email)
+                .maybeSingle();
+              if (legacyProfile) {
+                dbProfile = legacyProfile;
+                // Sincroniza cópia isolada na tabela cb_profiles
+                await supabase.from("cb_profiles").upsert({
+                  id: legacyProfile.id,
+                  full_name: legacyProfile.full_name,
+                  email: legacyProfile.email,
+                  crf: legacyProfile.crf || null,
+                  unit_id: isValidUUID(legacyProfile.unit_id) ? legacyProfile.unit_id : null,
+                  role: legacyProfile.role || "pharmacist",
+                  active: legacyProfile.active ?? true,
+                });
+              }
+            }
 
             if (active && dbProfile) {
               if (dbProfile.active === false) {
@@ -600,11 +674,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setConsultations([]);
         setMonthlyData([]);
       } else if (session?.user?.email) {
-        const { data: dbProfile } = await client
-          .from("profiles")
+        let { data: dbProfile } = await client
+          .from("cb_profiles")
           .select("*")
           .eq("email", session.user.email)
           .maybeSingle();
+
+        if (!dbProfile) {
+          const { data: legacyProfile } = await client
+            .from("profiles")
+            .select("*")
+            .eq("email", session.user.email)
+            .maybeSingle();
+          dbProfile = legacyProfile;
+        }
 
         if (dbProfile) {
           if (dbProfile.active === false) {
@@ -742,11 +825,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (data.user) {
-        const { data: dbProfile } = await supabase
-          .from("profiles")
-          .select("*, unit:units(*)")
+        let { data: dbProfile } = await supabase
+          .from("cb_profiles")
+          .select("*, unit:cb_units(*)")
           .eq("email", data.user.email)
           .maybeSingle();
+
+        if (!dbProfile) {
+          const { data: legacyProfile } = await supabase
+            .from("profiles")
+            .select("*, unit:units(*)")
+            .eq("email", data.user.email)
+            .maybeSingle();
+          if (legacyProfile) {
+            dbProfile = legacyProfile;
+            await supabase.from("cb_profiles").upsert({
+              id: legacyProfile.id,
+              full_name: legacyProfile.full_name,
+              email: legacyProfile.email,
+              crf: legacyProfile.crf || null,
+              unit_id: isValidUUID(legacyProfile.unit_id) ? legacyProfile.unit_id : null,
+              role: legacyProfile.role || "pharmacist",
+              active: legacyProfile.active ?? true,
+            });
+          }
+        }
 
         if (dbProfile && dbProfile.active === false) {
           await supabase.auth.signOut();
@@ -769,10 +872,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               "Usuário Institucional",
             email: data.user.email!,
             crf: userMeta.crf || null,
-            unit_id: userMeta.unit_id || null,
+            unit_id: isValidUUID(userMeta.unit_id) ? userMeta.unit_id : null,
             role: userMeta.role || "pharmacist",
           };
-          await supabase.from("profiles").upsert(activeProfile);
+          await supabase.from("cb_profiles").upsert({
+            id: activeProfile.id,
+            full_name: activeProfile.full_name,
+            email: activeProfile.email,
+            crf: activeProfile.crf || null,
+            unit_id: activeProfile.unit_id || null,
+            role: activeProfile.role || "pharmacist",
+            active: true,
+          });
         }
 
         setIsDemoMode(false);
@@ -859,21 +970,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (!isDemoMode && isSupabaseConfigured && supabase) {
       supabase
-        .from("patients")
+        .from("cb_patients")
         .insert({
           id: newPatient.id,
-          unit_id: newPatient.unit_id,
-          cpf: newPatient.cpf,
+          unit_id: isValidUUID(newPatient.unit_id) ? newPatient.unit_id : null,
+          cpf: newPatient.cpf || null,
+          cpf_not_provided: newPatient.cpf_not_provided ?? false,
           cns: newPatient.cns || null,
           full_name: newPatient.full_name,
           birth_date: newPatient.birth_date || null,
+          gender: newPatient.gender || null,
           phone: newPatient.phone || null,
+          bairro: newPatient.bairro || null,
+          cep: newPatient.cep || null,
+          municipality_id: isValidUUID(newPatient.municipality_id) ? newPatient.municipality_id : null,
+          municipality_name: newPatient.municipality_name || null,
+          is_outside_bahia: newPatient.is_outside_bahia ?? false,
+          outside_state_description: newPatient.outside_state_description || null,
           status: newPatient.status,
-          created_by:
-            currentUser?.id && currentUser.id.includes("-") ? currentUser.id : null,
+          status_externo: newPatient.status_externo || null,
+          afsesab_status: newPatient.afsesab_status || null,
+          afsesab_status_label: newPatient.afsesab_status_label || null,
+          cadastrado_afsesab: newPatient.cadastrado_afsesab ?? false,
+          created_by: isValidUUID(currentUser?.id) ? currentUser!.id : null,
         })
         .then(({ error }) => {
-          if (error) console.error("Erro ao salvar paciente no Supabase:", error);
+          if (error) console.warn("Supabase cb_patients insert warning:", error.message);
         });
     }
 
@@ -888,12 +1010,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
 
     if (!isDemoMode && isSupabaseConfigured && supabase) {
+      const sanitizedPatch: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (patch.full_name !== undefined) sanitizedPatch.full_name = patch.full_name;
+      if (patch.cpf !== undefined) sanitizedPatch.cpf = patch.cpf;
+      if (patch.cpf_not_provided !== undefined) sanitizedPatch.cpf_not_provided = patch.cpf_not_provided;
+      if (patch.cns !== undefined) sanitizedPatch.cns = patch.cns || null;
+      if (patch.birth_date !== undefined) sanitizedPatch.birth_date = patch.birth_date || null;
+      if (patch.gender !== undefined) sanitizedPatch.gender = patch.gender || null;
+      if (patch.phone !== undefined) sanitizedPatch.phone = patch.phone || null;
+      if (patch.bairro !== undefined) sanitizedPatch.bairro = patch.bairro || null;
+      if (patch.cep !== undefined) sanitizedPatch.cep = patch.cep || null;
+      if (patch.municipality_id !== undefined) sanitizedPatch.municipality_id = isValidUUID(patch.municipality_id) ? patch.municipality_id : null;
+      if (patch.municipality_name !== undefined) sanitizedPatch.municipality_name = patch.municipality_name || null;
+      if (patch.is_outside_bahia !== undefined) sanitizedPatch.is_outside_bahia = patch.is_outside_bahia;
+      if (patch.outside_state_description !== undefined) sanitizedPatch.outside_state_description = patch.outside_state_description || null;
+      if (patch.status !== undefined) sanitizedPatch.status = patch.status;
+      if (patch.status_externo !== undefined) sanitizedPatch.status_externo = patch.status_externo || null;
+      if (patch.afsesab_status !== undefined) sanitizedPatch.afsesab_status = patch.afsesab_status || null;
+      if (patch.afsesab_status_label !== undefined) sanitizedPatch.afsesab_status_label = patch.afsesab_status_label || null;
+      if (patch.cadastrado_afsesab !== undefined) sanitizedPatch.cadastrado_afsesab = patch.cadastrado_afsesab;
+
       supabase
-        .from("patients")
-        .update(patch)
+        .from("cb_patients")
+        .update(sanitizedPatch)
         .eq("id", id)
         .then(({ error }) => {
-          if (error) console.error("Erro ao atualizar paciente no Supabase:", error);
+          if (error) console.warn("Supabase cb_patients update warning:", error.message);
         });
     }
   };
@@ -1327,12 +1471,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const { error } = await supabase.from("units").insert({
+        const { error } = await supabase.from("cb_units").insert({
           id: newUnit.id,
           name: newUnit.name,
           macroregion: newUnit.macroregion,
           cnes: newUnit.cnes || null,
           municipality: newUnit.municipality || null,
+          email: newUnit.email || null,
+          phone: newUnit.phone || null,
+          address: newUnit.address || null,
           active: newUnit.active,
         });
         if (error) console.error("Erro ao salvar unidade no Supabase:", error);
@@ -1354,9 +1501,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         prev.map((u) => (u.id === unitId ? { ...u, ...unitData } : u))
       );
 
-      if (isSupabaseConfigured && supabase) {
+      if (isSupabaseConfigured && supabase && isValidUUID(unitId)) {
         const { error } = await supabase
-          .from("units")
+          .from("cb_units")
           .update({
             ...unitData,
             updated_at: new Date().toISOString(),
@@ -1408,13 +1555,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (userData.full_name !== undefined) updatePayload.full_name = userData.full_name.trim();
       if (userData.email !== undefined) updatePayload.email = userData.email.trim().toLowerCase();
       if (userData.crf !== undefined) updatePayload.crf = userData.crf?.trim() || null;
-      if (userData.unit_id !== undefined) updatePayload.unit_id = userData.unit_id;
+      if (userData.unit_id !== undefined) updatePayload.unit_id = isValidUUID(userData.unit_id) ? userData.unit_id : null;
       if (userData.role !== undefined) updatePayload.role = userData.role;
       if (userData.active !== undefined) updatePayload.active = userData.active;
 
-      if (isSupabaseConfigured && supabase) {
+      if (isSupabaseConfigured && supabase && isValidUUID(userId)) {
         const { error } = await supabase
-          .from("profiles")
+          .from("cb_profiles")
           .update(updatePayload)
           .eq("id", userId);
 
@@ -1599,15 +1746,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
     setOrigens((prev) => [newOrigem, ...prev]);
+
+    if (!isDemoMode && isSupabaseConfigured && supabase) {
+      supabase
+        .from("cb_origens")
+        .insert({
+          id: newOrigem.id,
+          name: newOrigem.name,
+          sigla: newOrigem.sigla || null,
+          description: newOrigem.description || null,
+          active: newOrigem.active ?? true,
+        })
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_origens insert warning:", error.message);
+        });
+    }
+
     return newOrigem;
   };
 
   const updateOrigem = async (id: string, data: Partial<Origem>): Promise<void> => {
     setOrigens((prev) => prev.map((o) => (o.id === id ? { ...o, ...data } : o)));
+
+    if (!isDemoMode && isSupabaseConfigured && supabase && isValidUUID(id)) {
+      supabase
+        .from("cb_origens")
+        .update(data)
+        .eq("id", id)
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_origens update warning:", error.message);
+        });
+    }
   };
 
   const deleteOrigem = async (id: string): Promise<void> => {
     setOrigens((prev) => prev.filter((o) => o.id !== id));
+
+    if (!isDemoMode && isSupabaseConfigured && supabase && isValidUUID(id)) {
+      supabase
+        .from("cb_origens")
+        .delete()
+        .eq("id", id)
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_origens delete warning:", error.message);
+        });
+    }
   };
 
   // 2. DIRES
@@ -1656,15 +1839,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
     setMunicipios((prev) => [newMun, ...prev]);
+
+    if (!isDemoMode && isSupabaseConfigured && supabase) {
+      supabase
+        .from("cb_municipios")
+        .insert({
+          id: newMun.id,
+          ibge_code: newMun.ibge_code,
+          name: newMun.name,
+          base_id: isValidUUID(newMun.base_id) ? newMun.base_id : null,
+          dires_id: isValidUUID(newMun.dires_id) ? newMun.dires_id : null,
+          nucleo_id: isValidUUID(newMun.nucleo_id) ? newMun.nucleo_id : null,
+          population: newMun.population || null,
+          active: newMun.active ?? true,
+        })
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_municipios insert warning:", error.message);
+        });
+    }
+
     return newMun;
   };
 
   const updateMunicipio = async (id: string, data: Partial<Municipio>): Promise<void> => {
     setMunicipios((prev) => prev.map((m) => (m.id === id ? { ...m, ...data } : m)));
+
+    if (!isDemoMode && isSupabaseConfigured && supabase && isValidUUID(id)) {
+      supabase
+        .from("cb_municipios")
+        .update(data)
+        .eq("id", id)
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_municipios update warning:", error.message);
+        });
+    }
   };
 
   const deleteMunicipio = async (id: string): Promise<void> => {
     setMunicipios((prev) => prev.filter((m) => m.id !== id));
+
+    if (!isDemoMode && isSupabaseConfigured && supabase && isValidUUID(id)) {
+      supabase
+        .from("cb_municipios")
+        .delete()
+        .eq("id", id)
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_municipios delete warning:", error.message);
+        });
+    }
   };
 
   // 5. Outros Medicamentos
@@ -1675,15 +1897,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
     setOtherMedications((prev) => [newMed, ...prev]);
+
+    if (!isDemoMode && isSupabaseConfigured && supabase) {
+      supabase
+        .from("cb_other_medications")
+        .insert({
+          id: newMed.id,
+          name: newMed.name,
+          active_ingredient: newMed.active_ingredient,
+          dosage: newMed.dosage || null,
+          pharmaceutical_form: newMed.pharmaceutical_form || null,
+          anvisa_registry: newMed.anvisa_registry || null,
+          category: newMed.category || "Não Padronizado no SUS",
+          notes: newMed.notes || null,
+          estimated_unit_cost: newMed.estimated_unit_cost || null,
+          active: newMed.active ?? true,
+        })
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_other_medications insert warning:", error.message);
+        });
+    }
+
     return newMed;
   };
 
   const updateOtherMedication = async (id: string, data: Partial<OtherMedication>): Promise<void> => {
     setOtherMedications((prev) => prev.map((m) => (m.id === id ? { ...m, ...data, updated_at: new Date().toISOString() } : m)));
+
+    if (!isDemoMode && isSupabaseConfigured && supabase && isValidUUID(id)) {
+      supabase
+        .from("cb_other_medications")
+        .update({
+          ...data,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_other_medications update warning:", error.message);
+        });
+    }
   };
 
   const toggleOtherMedicationActive = async (id: string, active: boolean): Promise<void> => {
     setOtherMedications((prev) => prev.map((m) => (m.id === id ? { ...m, active } : m)));
+
+    if (!isDemoMode && isSupabaseConfigured && supabase && isValidUUID(id)) {
+      supabase
+        .from("cb_other_medications")
+        .update({ active, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_other_medications toggle warning:", error.message);
+        });
+    }
   };
 
   // 5.1 Fármacos & Apresentações Unificados (Anvisa / SUS)
@@ -1719,15 +1985,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
     setTiposParecer((prev) => [newTp, ...prev]);
+
+    if (!isDemoMode && isSupabaseConfigured && supabase) {
+      supabase
+        .from("cb_tipos_parecer")
+        .insert({
+          id: newTp.id,
+          code: newTp.code,
+          title: newTp.title,
+          regulatory_effect: newTp.regulatory_effect,
+          description: newTp.description || null,
+          active: newTp.active ?? true,
+        })
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_tipos_parecer insert warning:", error.message);
+        });
+    }
+
     return newTp;
   };
 
   const updateTipoParecer = async (id: string, data: Partial<TipoParecer>): Promise<void> => {
     setTiposParecer((prev) => prev.map((t) => (t.id === id ? { ...t, ...data } : t)));
+
+    if (!isDemoMode && isSupabaseConfigured && supabase && isValidUUID(id)) {
+      supabase
+        .from("cb_tipos_parecer")
+        .update(data)
+        .eq("id", id)
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_tipos_parecer update warning:", error.message);
+        });
+    }
   };
 
   const toggleTipoParecerActive = async (id: string, active: boolean): Promise<void> => {
     setTiposParecer((prev) => prev.map((t) => (t.id === id ? { ...t, active } : t)));
+
+    if (!isDemoMode && isSupabaseConfigured && supabase && isValidUUID(id)) {
+      supabase
+        .from("cb_tipos_parecer")
+        .update({ active })
+        .eq("id", id)
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_tipos_parecer toggle warning:", error.message);
+        });
+    }
   };
 
   // 7. Importador em lote de CIDs da Planilha
@@ -1770,6 +2073,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return [...toAdd, ...prev];
     });
 
+    if (!isDemoMode && isSupabaseConfigured && supabase) {
+      const cidsToPersist = rawCids
+        .filter((r) => r.code && r.code.trim())
+        .map((r) => ({
+          code: r.code.toUpperCase().trim(),
+          description: r.description,
+          chapter: r.chapter || null,
+          group_name: r.group_name || null,
+          active: true,
+        }));
+      if (cidsToPersist.length > 0) {
+        supabase
+          .from("cids")
+          .upsert(cidsToPersist, { onConflict: "code" })
+          .then(({ error }) => {
+            if (error) console.warn("Supabase cids upsert warning:", error.message);
+          });
+      }
+    }
+
     return { addedCount, updatedCount };
   };
 
@@ -1786,18 +2109,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           : u
       )
     );
+
+    if (isSupabaseConfigured && supabase && isValidUUID(id)) {
+      supabase
+        .from("cb_units")
+        .update({
+          ...data,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_units update warning:", error.message);
+        });
+    }
   };
 
   // 9. Processos SEI & Workflow
   const addProcesso = async (proc: Omit<Processo, "id" | "created_at">): Promise<Processo> => {
+    const newProcessoId = generateUUID();
+    const histId = generateUUID();
     const newProcesso: Processo = {
       ...proc,
-      id: generateUUID(),
+      id: newProcessoId,
       created_at: new Date().toISOString(),
       historico: [
         {
-          id: generateUUID(),
-          processo_id: "temp",
+          id: histId,
+          processo_id: newProcessoId,
           from_status: null,
           to_status: proc.status,
           user_id: currentUser?.id || "sistema",
@@ -1807,8 +2145,79 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         },
       ],
     };
-    newProcesso.historico![0].processo_id = newProcesso.id;
+
     setProcessos((prev) => [newProcesso, ...prev]);
+
+    const client = supabase;
+    if (!isDemoMode && isSupabaseConfigured && client) {
+      client
+        .from("cb_processos")
+        .insert({
+          id: newProcesso.id,
+          numero_sei: newProcesso.numero_sei,
+          data_abertura: newProcesso.data_abertura || new Date().toISOString().split("T")[0],
+          assunto: newProcesso.assunto,
+          paciente_id: newProcesso.paciente_id,
+          origem_id: isValidUUID(newProcesso.origem_id) ? newProcesso.origem_id : null,
+          origem_nome: newProcesso.origem?.name || null,
+          municipio_id: isValidUUID(newProcesso.municipio_id) ? newProcesso.municipio_id : null,
+          municipio_nome: newProcesso.municipio?.name || null,
+          unidade_id: isValidUUID(newProcesso.unidade_id) ? newProcesso.unidade_id : null,
+          status: newProcesso.status || "triagem",
+          priority: newProcesso.priority || "normal",
+          triagem_by_id: isValidUUID(newProcesso.triagem_by_id) ? newProcesso.triagem_by_id : null,
+          triagem_by_name: newProcesso.triagem_by_name || null,
+          triagem_completed_at: newProcesso.triagem_completed_at || null,
+          triagem_notes: newProcesso.triagem_notes || null,
+          triagem_documents_ok: newProcesso.triagem_documents_ok ?? false,
+          assigned_pharmacist_id: isValidUUID(newProcesso.assigned_pharmacist_id) ? newProcesso.assigned_pharmacist_id : null,
+          assigned_at: newProcesso.assigned_at || null,
+          sla_limit_date: newProcesso.sla_limit_date || new Date(Date.now() + 15 * 86400000).toISOString().split("T")[0],
+          days_in_current_status: newProcesso.days_in_current_status || 1,
+          is_sla_delayed: newProcesso.is_sla_delayed ?? false,
+          observations: newProcesso.observations || null,
+        })
+        .then(async ({ error }) => {
+          if (error) console.warn("Supabase cb_processos insert warning:", error.message);
+
+          if (newProcesso.items && newProcesso.items.length > 0) {
+            const itemRows = newProcesso.items.map((it) => ({
+              id: isValidUUID(it.id) ? it.id : generateUUID(),
+              processo_id: newProcesso.id,
+              medication_type: it.medication_type || "ceaf",
+              medication_id: it.medication_id || null,
+              medication_name: it.medication_name,
+              farmaco_substancia: it.farmaco_substancia || null,
+              cid_id: isValidUUID(it.cid_id) ? it.cid_id : null,
+              cid_code: it.cid_code,
+              cid_description: it.cid_description || null,
+              cid_nao_informado: it.cid_nao_informado ?? false,
+              posology: it.posology || null,
+              monthly_quantity: it.monthly_quantity ?? 1,
+              status: it.status || "pendente",
+              justification: it.justification || null,
+              evaluated_at: it.evaluated_at || null,
+              evaluated_by: it.evaluated_by || null,
+            }));
+            await client.from("cb_processo_items").insert(itemRows);
+          }
+
+          if (newProcesso.historico && newProcesso.historico.length > 0) {
+            const h = newProcesso.historico[0];
+            await client.from("cb_processo_historico").insert({
+              id: h.id,
+              processo_id: newProcesso.id,
+              from_status: h.from_status || null,
+              to_status: h.to_status,
+              user_id: h.user_id,
+              user_name: h.user_name,
+              notes: h.notes || null,
+              timestamp: h.timestamp,
+            });
+          }
+        });
+    }
+
     return newProcesso;
   };
 
@@ -1816,6 +2225,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setProcessos((prev) =>
       prev.map((p) => (p.id === id ? { ...p, ...data, updated_at: new Date().toISOString() } : p))
     );
+
+    if (!isDemoMode && isSupabaseConfigured && supabase && isValidUUID(id)) {
+      const procPayload: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (data.status !== undefined) procPayload.status = data.status;
+      if (data.priority !== undefined) procPayload.priority = data.priority;
+      if (data.assunto !== undefined) procPayload.assunto = data.assunto;
+      if (data.triagem_by_id !== undefined) procPayload.triagem_by_id = isValidUUID(data.triagem_by_id) ? data.triagem_by_id : null;
+      if (data.triagem_by_name !== undefined) procPayload.triagem_by_name = data.triagem_by_name;
+      if (data.triagem_completed_at !== undefined) procPayload.triagem_completed_at = data.triagem_completed_at;
+      if (data.triagem_notes !== undefined) procPayload.triagem_notes = data.triagem_notes;
+      if (data.triagem_documents_ok !== undefined) procPayload.triagem_documents_ok = data.triagem_documents_ok;
+      if (data.assigned_pharmacist_id !== undefined) procPayload.assigned_pharmacist_id = isValidUUID(data.assigned_pharmacist_id) ? data.assigned_pharmacist_id : null;
+      if (data.assigned_at !== undefined) procPayload.assigned_at = data.assigned_at;
+      if (data.sla_limit_date !== undefined) procPayload.sla_limit_date = data.sla_limit_date;
+      if (data.days_in_current_status !== undefined) procPayload.days_in_current_status = data.days_in_current_status;
+      if (data.is_sla_delayed !== undefined) procPayload.is_sla_delayed = data.is_sla_delayed;
+      if (data.observations !== undefined) procPayload.observations = data.observations;
+
+      supabase
+        .from("cb_processos")
+        .update(procPayload)
+        .eq("id", id)
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_processos update warning:", error.message);
+        });
+
+      if (data.items) {
+        const itemRows = data.items.map((it) => ({
+          id: isValidUUID(it.id) ? it.id : generateUUID(),
+          processo_id: id,
+          medication_type: it.medication_type || "ceaf",
+          medication_id: it.medication_id || null,
+          medication_name: it.medication_name,
+          farmaco_substancia: it.farmaco_substancia || null,
+          cid_id: isValidUUID(it.cid_id) ? it.cid_id : null,
+          cid_code: it.cid_code,
+          cid_description: it.cid_description || null,
+          cid_nao_informado: it.cid_nao_informado ?? false,
+          posology: it.posology || null,
+          monthly_quantity: it.monthly_quantity ?? 1,
+          status: it.status || "pendente",
+          justification: it.justification || null,
+          evaluated_at: it.evaluated_at || null,
+          evaluated_by: it.evaluated_by || null,
+        }));
+        supabase
+          .from("cb_processo_items")
+          .upsert(itemRows)
+          .then(({ error }) => {
+            if (error) console.warn("Supabase cb_processo_items upsert warning:", error.message);
+          });
+      }
+    }
   };
 
   const deleteProcesso = async (id: string): Promise<{ success: boolean; error?: string }> => {
@@ -1833,6 +2297,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     setProcessos((prev) => prev.filter((p) => p.id !== id));
+
+    if (!isDemoMode && isSupabaseConfigured && supabase && isValidUUID(id)) {
+      supabase
+        .from("cb_processos")
+        .delete()
+        .eq("id", id)
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_processos delete warning:", error.message);
+        });
+    }
+
     return { success: true };
   };
 
@@ -1841,19 +2316,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     newStatus: ProcessoStatus,
     notes?: string
   ): Promise<void> => {
+    const histItem = {
+      id: generateUUID(),
+      processo_id: processoId,
+      from_status: (processos.find((p) => p.id === processoId)?.status || null) as ProcessoStatus | null,
+      to_status: newStatus,
+      user_id: currentUser?.id || "sistema",
+      user_name: currentUser?.full_name || "Sistema",
+      notes: notes || null,
+      timestamp: new Date().toISOString(),
+    };
+
     setProcessos((prev) =>
       prev.map((p) => {
         if (p.id !== processoId) return p;
-        const histItem = {
-          id: generateUUID(),
-          processo_id: p.id,
-          from_status: p.status,
-          to_status: newStatus,
-          user_id: currentUser?.id || "sistema",
-          user_name: currentUser?.full_name || "Sistema",
-          notes: notes || null,
-          timestamp: new Date().toISOString(),
-        };
         return {
           ...p,
           status: newStatus,
@@ -1863,6 +2339,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         };
       })
     );
+
+    if (!isDemoMode && isSupabaseConfigured && supabase && isValidUUID(processoId)) {
+      supabase
+        .from("cb_processos")
+        .update({
+          status: newStatus,
+          days_in_current_status: 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", processoId)
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_processos status update warning:", error.message);
+        });
+
+      supabase
+        .from("cb_processo_historico")
+        .insert({
+          id: histItem.id,
+          processo_id: histItem.processo_id,
+          from_status: histItem.from_status,
+          to_status: histItem.to_status,
+          user_id: histItem.user_id,
+          user_name: histItem.user_name,
+          notes: histItem.notes,
+          timestamp: histItem.timestamp,
+        })
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_processo_historico insert warning:", error.message);
+        });
+    }
   };
 
   const atribuirFarmaceuticoProcesso = async (
@@ -1870,19 +2376,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pharmacistId: string
   ): Promise<void> => {
     const targetPharmacist = profiles.find((p) => p.id === pharmacistId);
+    const histItem = {
+      id: generateUUID(),
+      processo_id: processoId,
+      from_status: (processos.find((p) => p.id === processoId)?.status || null) as ProcessoStatus | null,
+      to_status: "em_analise_farmaceutica" as ProcessoStatus,
+      user_id: currentUser?.id || "sistema",
+      user_name: currentUser?.full_name || "Sistema",
+      notes: `Processo atribuído à parecerista: ${targetPharmacist?.full_name || "Farmacêutico"}`,
+      timestamp: new Date().toISOString(),
+    };
+
     setProcessos((prev) =>
       prev.map((p) => {
         if (p.id !== processoId) return p;
-        const histItem = {
-          id: generateUUID(),
-          processo_id: p.id,
-          from_status: p.status,
-          to_status: "em_analise_farmaceutica" as ProcessoStatus,
-          user_id: currentUser?.id || "sistema",
-          user_name: currentUser?.full_name || "Sistema",
-          notes: `Processo atribuído à parecerista: ${targetPharmacist?.full_name || "Farmacêutico"}`,
-          timestamp: new Date().toISOString(),
-        };
         return {
           ...p,
           assigned_pharmacist_id: pharmacistId,
@@ -1894,6 +2401,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         };
       })
     );
+
+    if (!isDemoMode && isSupabaseConfigured && supabase && isValidUUID(processoId)) {
+      supabase
+        .from("cb_processos")
+        .update({
+          assigned_pharmacist_id: isValidUUID(pharmacistId) ? pharmacistId : null,
+          assigned_at: new Date().toISOString(),
+          status: "em_analise_farmaceutica",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", processoId)
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_processos attribution warning:", error.message);
+        });
+
+      supabase
+        .from("cb_processo_historico")
+        .insert({
+          id: histItem.id,
+          processo_id: histItem.processo_id,
+          from_status: histItem.from_status,
+          to_status: histItem.to_status,
+          user_id: histItem.user_id,
+          user_name: histItem.user_name,
+          notes: histItem.notes,
+          timestamp: histItem.timestamp,
+        })
+        .then(({ error }) => {
+          if (error) console.warn("Supabase cb_processo_historico insert warning:", error.message);
+        });
+    }
   };
 
   const emitirParecerProcesso = async (
@@ -1933,19 +2471,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ? "em_exigencia"
         : "concluido_parcial";
 
+    const histItem = {
+      id: generateUUID(),
+      processo_id: processoId,
+      from_status: (processos.find((p) => p.id === processoId)?.status || null) as ProcessoStatus | null,
+      to_status: finalStatus,
+      user_id: currentUser?.id || "sistema",
+      user_name: currentUser?.full_name || "Farmacêutico",
+      notes: `Parecer técnico emitido: ${parecerData.tipo_parecer_title}`,
+      timestamp: new Date().toISOString(),
+    };
+
     setProcessos((prev) =>
       prev.map((p) => {
         if (p.id !== processoId) return p;
-        const histItem = {
-          id: generateUUID(),
-          processo_id: p.id,
-          from_status: p.status,
-          to_status: finalStatus,
-          user_id: currentUser?.id || "sistema",
-          user_name: currentUser?.full_name || "Farmacêutico",
-          notes: `Parecer técnico emitido: ${parecerData.tipo_parecer_title}`,
-          timestamp: new Date().toISOString(),
-        };
         return {
           ...p,
           status: finalStatus,
@@ -1960,6 +2499,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         };
       })
     );
+
+    if (!isDemoMode && isSupabaseConfigured && supabase && isValidUUID(processoId)) {
+      await supabase.from("cb_pareceres").upsert({
+        id: activeVer.parecer_id,
+        processo_id: processoId,
+      });
+
+      await supabase.from("cb_parecer_versoes").insert({
+        id: activeVer.id,
+        parecer_id: activeVer.parecer_id,
+        version_number: 1,
+        pharmacist_id: isValidUUID(activeVer.pharmacist_id) ? activeVer.pharmacist_id : null,
+        pharmacist_name: activeVer.pharmacist_name,
+        crf: activeVer.crf,
+        tipo_parecer_id: isValidUUID(activeVer.tipo_parecer_id) ? activeVer.tipo_parecer_id : null,
+        tipo_parecer_title: activeVer.tipo_parecer_title,
+        regulatory_effect: activeVer.regulatory_effect,
+        technical_justification: activeVer.technical_justification,
+        clinical_foundation: activeVer.clinical_foundation,
+        recommendations: activeVer.recommendations || null,
+        signature_hash: activeVer.signature_hash,
+      });
+
+      await supabase
+        .from("cb_processos")
+        .update({
+          status: finalStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", processoId);
+
+      await supabase.from("cb_processo_historico").insert({
+        id: histItem.id,
+        processo_id: histItem.processo_id,
+        from_status: histItem.from_status,
+        to_status: histItem.to_status,
+        user_id: histItem.user_id,
+        user_name: histItem.user_name,
+        notes: histItem.notes,
+        timestamp: histItem.timestamp,
+      });
+    }
   };
 
   const retificarParecerProcesso = async (
@@ -1974,50 +2555,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     rectificationReason: string
   ): Promise<void> => {
+    const targetProcesso = processos.find((p) => p.id === processoId);
+    if (!targetProcesso || !targetProcesso.parecer) return;
+
+    const currentActive = targetProcesso.parecer.active_version;
+    const newVerNum = currentActive.version_number + 1;
+
+    const newActiveVer: ParecerVersao = {
+      id: generateUUID(),
+      parecer_id: targetProcesso.parecer.id,
+      version_number: newVerNum,
+      pharmacist_id: currentUser?.id || "anon",
+      pharmacist_name: currentUser?.full_name || "Farmacêutico Parecerista",
+      crf: currentUser?.crf || "CRF-BA",
+      tipo_parecer_id: parecerData.tipo_parecer_id,
+      tipo_parecer_title: parecerData.tipo_parecer_title,
+      regulatory_effect: parecerData.regulatory_effect,
+      technical_justification: parecerData.technical_justification,
+      clinical_foundation: parecerData.clinical_foundation,
+      recommendations: parecerData.recommendations || null,
+      rectification_reason: rectificationReason,
+      signature_hash: `SHA256:${generateUUID().replace(/-/g, "")}`,
+      created_at: new Date().toISOString(),
+    };
+
+    const finalStatus: ProcessoStatus =
+      parecerData.regulatory_effect === "deferido"
+        ? "concluido_deferido"
+        : parecerData.regulatory_effect === "indeferido"
+        ? "concluido_indeferido"
+        : parecerData.regulatory_effect === "exigencia"
+        ? "em_exigencia"
+        : "concluido_parcial";
+
+    const histItem = {
+      id: generateUUID(),
+      processo_id: processoId,
+      from_status: targetProcesso.status,
+      to_status: finalStatus,
+      user_id: currentUser?.id || "sistema",
+      user_name: currentUser?.full_name || "Farmacêutico",
+      notes: `Parecer retificado (Versão ${newVerNum}). Motivo: ${rectificationReason}`,
+      timestamp: new Date().toISOString(),
+    };
+
     setProcessos((prev) =>
       prev.map((p) => {
         if (p.id !== processoId || !p.parecer) return p;
-        const currentActive = p.parecer.active_version;
-        const newVerNum = currentActive.version_number + 1;
-
-        const newActiveVer: ParecerVersao = {
-          id: generateUUID(),
-          parecer_id: p.parecer.id,
-          version_number: newVerNum,
-          pharmacist_id: currentUser?.id || "anon",
-          pharmacist_name: currentUser?.full_name || "Farmacêutico Parecerista",
-          crf: currentUser?.crf || "CRF-BA",
-          tipo_parecer_id: parecerData.tipo_parecer_id,
-          tipo_parecer_title: parecerData.tipo_parecer_title,
-          regulatory_effect: parecerData.regulatory_effect,
-          technical_justification: parecerData.technical_justification,
-          clinical_foundation: parecerData.clinical_foundation,
-          recommendations: parecerData.recommendations || null,
-          rectification_reason: rectificationReason,
-          signature_hash: `SHA256:${generateUUID().replace(/-/g, "")}`,
-          created_at: new Date().toISOString(),
-        };
-
-        const finalStatus: ProcessoStatus =
-          parecerData.regulatory_effect === "deferido"
-            ? "concluido_deferido"
-            : parecerData.regulatory_effect === "indeferido"
-            ? "concluido_indeferido"
-            : parecerData.regulatory_effect === "exigencia"
-            ? "em_exigencia"
-            : "concluido_parcial";
-
-        const histItem = {
-          id: generateUUID(),
-          processo_id: p.id,
-          from_status: p.status,
-          to_status: finalStatus,
-          user_id: currentUser?.id || "sistema",
-          user_name: currentUser?.full_name || "Farmacêutico",
-          notes: `Parecer retificado (Versão ${newVerNum}). Motivo: ${rectificationReason}`,
-          timestamp: new Date().toISOString(),
-        };
-
         return {
           ...p,
           status: finalStatus,
@@ -2031,6 +2615,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         };
       })
     );
+
+    if (!isDemoMode && isSupabaseConfigured && supabase && isValidUUID(processoId)) {
+      await supabase.from("cb_parecer_versoes").insert({
+        id: newActiveVer.id,
+        parecer_id: newActiveVer.parecer_id,
+        version_number: newVerNum,
+        pharmacist_id: isValidUUID(newActiveVer.pharmacist_id) ? newActiveVer.pharmacist_id : null,
+        pharmacist_name: newActiveVer.pharmacist_name,
+        crf: newActiveVer.crf,
+        tipo_parecer_id: isValidUUID(newActiveVer.tipo_parecer_id) ? newActiveVer.tipo_parecer_id : null,
+        tipo_parecer_title: newActiveVer.tipo_parecer_title,
+        regulatory_effect: newActiveVer.regulatory_effect,
+        technical_justification: newActiveVer.technical_justification,
+        clinical_foundation: newActiveVer.clinical_foundation,
+        recommendations: newActiveVer.recommendations || null,
+        rectification_reason: rectificationReason,
+        signature_hash: newActiveVer.signature_hash,
+      });
+
+      await supabase
+        .from("cb_processos")
+        .update({
+          status: finalStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", processoId);
+
+      await supabase.from("cb_processo_historico").insert({
+        id: histItem.id,
+        processo_id: histItem.processo_id,
+        from_status: histItem.from_status,
+        to_status: histItem.to_status,
+        user_id: histItem.user_id,
+        user_name: histItem.user_name,
+        notes: histItem.notes,
+        timestamp: histItem.timestamp,
+      });
+    }
   };
 
   return (
