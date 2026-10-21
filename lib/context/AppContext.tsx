@@ -1702,7 +1702,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           p_full_name: userData.full_name.trim(),
           p_role: userData.role,
           p_crf: userData.crf?.trim() || null,
-          p_unit_id: userData.unit_id || null,
+          p_unit_id: isValidUUID(userData.unit_id) ? userData.unit_id : null,
         });
 
         if (error) {
