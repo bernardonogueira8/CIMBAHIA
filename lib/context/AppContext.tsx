@@ -6,19 +6,40 @@ import {
   Profile,
   CID,
   Medication,
+  OtherMedication,
+  TipoParecer,
   Patient,
   Consultation,
   MonthlyComplementaryData,
   Role,
+  Origem,
+  Dires,
+  Nucleo,
+  BaseRegional,
+  Municipio,
+  Processo,
+  ProcessoStatus,
+  ParecerVersao,
+  Farmaco,
+  isProcessoInFirstStatus,
 } from "../types";
+import { INITIAL_FARMACOS } from "../farmacos-data";
 import {
   INITIAL_UNITS,
   INITIAL_PROFILES,
   INITIAL_CIDS,
   INITIAL_MEDICATIONS,
+  INITIAL_OTHER_MEDICATIONS,
+  INITIAL_TIPOS_PARECER,
   INITIAL_PATIENTS,
   INITIAL_CONSULTATIONS,
   INITIAL_MONTHLY_DATA,
+  INITIAL_ORIGENS,
+  INITIAL_DIRES,
+  INITIAL_NUCLEOS,
+  INITIAL_BASES,
+  INITIAL_MUNICIPIOS,
+  INITIAL_PROCESSOS,
 } from "../mock-data";
 import { supabase, isSupabaseConfigured } from "../supabase/client";
 
@@ -121,8 +142,80 @@ interface AppContextType {
     password: string;
     crf?: string;
     unit_id?: string | null;
-    role: "pharmacist" | "admin" | "viewer";
+    role: Role;
   }) => Promise<{ success: boolean; error?: string }>;
+
+  // CIMBAHIA: Estrutura Territorial, Catálogos e Processos
+  origens: Origem[];
+  diresList: Dires[];
+  nucleos: Nucleo[];
+  bases: BaseRegional[];
+  municipios: Municipio[];
+  farmacos: Farmaco[];
+  addFarmaco: (farmaco: Omit<Farmaco, "id">) => Promise<Farmaco>;
+  updateFarmaco: (id: string, data: Partial<Farmaco>) => Promise<void>;
+  toggleFarmacoActive: (id: string, active: boolean) => Promise<void>;
+  deleteFarmaco: (id: string) => Promise<void>;
+  otherMedications: OtherMedication[];
+  tiposParecer: TipoParecer[];
+  processos: Processo[];
+
+  addOrigem: (origem: Omit<Origem, "id">) => Promise<Origem>;
+  updateOrigem: (id: string, data: Partial<Origem>) => Promise<void>;
+  deleteOrigem: (id: string) => Promise<void>;
+
+  addDires: (dires: Omit<Dires, "id">) => Promise<Dires>;
+  updateDires: (id: string, data: Partial<Dires>) => Promise<void>;
+  deleteDires: (id: string) => Promise<void>;
+
+  addNucleo: (nucleo: Omit<Nucleo, "id">) => Promise<Nucleo>;
+  updateNucleo: (id: string, data: Partial<Nucleo>) => Promise<void>;
+  deleteNucleo: (id: string) => Promise<void>;
+
+  addMunicipio: (mun: Omit<Municipio, "id">) => Promise<Municipio>;
+  updateMunicipio: (id: string, data: Partial<Municipio>) => Promise<void>;
+  deleteMunicipio: (id: string) => Promise<void>;
+
+  addOtherMedication: (med: Omit<OtherMedication, "id" | "created_at">) => Promise<OtherMedication>;
+  updateOtherMedication: (id: string, data: Partial<OtherMedication>) => Promise<void>;
+  toggleOtherMedicationActive: (id: string, active: boolean) => Promise<void>;
+
+  addTipoParecer: (tp: Omit<TipoParecer, "id">) => Promise<TipoParecer>;
+  updateTipoParecer: (id: string, data: Partial<TipoParecer>) => Promise<void>;
+  toggleTipoParecerActive: (id: string, active: boolean) => Promise<void>;
+
+  importCIDsBatch: (cids: Array<{ code: string; description: string; chapter?: string; group_name?: string }>) => Promise<{ addedCount: number; updatedCount: number }>;
+
+  updateUnitFull: (id: string, data: Partial<Unit>) => Promise<void>;
+
+  addProcesso: (proc: Omit<Processo, "id" | "created_at">) => Promise<Processo>;
+  updateProcesso: (id: string, data: Partial<Processo>) => Promise<void>;
+  deleteProcesso: (id: string) => Promise<{ success: boolean; error?: string }>;
+  transicionarProcessoStatus: (processoId: string, newStatus: ProcessoStatus, notes?: string) => Promise<void>;
+  atribuirFarmaceuticoProcesso: (processoId: string, pharmacistId: string) => Promise<void>;
+  emitirParecerProcesso: (
+    processoId: string,
+    parecerData: {
+      tipo_parecer_id: string;
+      tipo_parecer_title: string;
+      regulatory_effect: TipoParecer["regulatory_effect"];
+      technical_justification: string;
+      clinical_foundation: string;
+      recommendations?: string | null;
+    }
+  ) => Promise<void>;
+  retificarParecerProcesso: (
+    processoId: string,
+    parecerData: {
+      tipo_parecer_id: string;
+      tipo_parecer_title: string;
+      regulatory_effect: TipoParecer["regulatory_effect"];
+      technical_justification: string;
+      clinical_foundation: string;
+      recommendations?: string | null;
+    },
+    rectificationReason: string
+  ) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -148,10 +241,61 @@ function saveToStorage<T>(key: string, value: T) {
   }
 }
 
+function mergeOfficialUnits(remoteUnits: Unit[]): Unit[] {
+  const merged: Unit[] = INITIAL_UNITS.map((u) => ({
+    ...u,
+    email: "",
+    phone: "",
+    address: "",
+    served_municipalities: [...(u.served_municipalities || [])],
+    responsible_pharmacists: [],
+  }));
+
+  if (!remoteUnits || remoteUnits.length === 0) return merged;
+
+  remoteUnits.forEach((remote) => {
+    const remoteNameClean = (remote.name || "").trim().toLowerCase();
+    const idx = merged.findIndex(
+      (m) =>
+        m.id === remote.id ||
+        (m.name || "").trim().toLowerCase() === remoteNameClean
+    );
+
+    if (idx >= 0) {
+      merged[idx] = {
+        ...merged[idx],
+        ...remote,
+        email: remote.email || "",
+        phone: remote.phone || "",
+        address: remote.address || "",
+        served_municipalities:
+          remote.served_municipalities && remote.served_municipalities.length > 0
+            ? remote.served_municipalities
+            : merged[idx].served_municipalities,
+        responsible_pharmacists: remote.responsible_pharmacists || [],
+      };
+    } else {
+      merged.push({
+        ...remote,
+        served_municipalities: remote.served_municipalities || [],
+        responsible_pharmacists: remote.responsible_pharmacists || [],
+      });
+    }
+  });
+
+  return merged;
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [units, setUnits] = useState<Unit[]>(() =>
-    getStoredOrDefault("units", INITIAL_UNITS)
-  );
+  const [units, setUnits] = useState<Unit[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem(STORAGE_KEY_PREFIX + "units");
+      } catch {}
+    }
+    const stored = getStoredOrDefault<Unit[]>("units_v3", INITIAL_UNITS);
+    return mergeOfficialUnits(stored || []);
+  });
   const [profiles, setProfiles] = useState<Profile[]>(() =>
     getStoredOrDefault("profiles", INITIAL_PROFILES)
   );
@@ -172,6 +316,55 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [monthlyData, setMonthlyData] = useState<MonthlyComplementaryData[]>(() => {
     const isDemo = getStoredOrDefault("isDemoMode", false);
     return isDemo ? INITIAL_MONTHLY_DATA : getStoredOrDefault("monthlyData", []);
+  });
+
+  // CimBahia: Estados territoriais, catálogos e processos
+  const [origens, setOrigens] = useState<Origem[]>(() =>
+    getStoredOrDefault("origens", INITIAL_ORIGENS)
+  );
+  const [diresList, setDiresList] = useState<Dires[]>(() =>
+    getStoredOrDefault("diresList", INITIAL_DIRES)
+  );
+  const [nucleos, setNucleos] = useState<Nucleo[]>(() => {
+    const stored = getStoredOrDefault<Nucleo[]>("nucleos", INITIAL_NUCLEOS);
+    return stored && stored.length >= 9 ? stored : INITIAL_NUCLEOS;
+  });
+  const [bases, setBases] = useState<BaseRegional[]>(() => {
+    const stored = getStoredOrDefault<BaseRegional[]>("bases", INITIAL_BASES);
+    return stored && stored.length >= 28 ? stored : INITIAL_BASES;
+  });
+  const [municipios, setMunicipios] = useState<Municipio[]>(() => {
+    const stored = getStoredOrDefault<Municipio[]>("municipios", INITIAL_MUNICIPIOS);
+    return stored && stored.length >= 417 ? stored : INITIAL_MUNICIPIOS;
+  });
+  const [farmacos, setFarmacos] = useState<Farmaco[]>(() => {
+    const stored = getStoredOrDefault<Farmaco[]>("farmacos", INITIAL_FARMACOS);
+    return stored && stored.length >= 4000 ? stored : INITIAL_FARMACOS;
+  });
+  const [otherMedications, setOtherMedications] = useState<OtherMedication[]>(() =>
+    getStoredOrDefault("otherMedications", INITIAL_OTHER_MEDICATIONS)
+  );
+  const [tiposParecer, setTiposParecer] = useState<TipoParecer[]>(() =>
+    getStoredOrDefault("tiposParecer", INITIAL_TIPOS_PARECER)
+  );
+  const [processos, setProcessos] = useState<Processo[]>(() => {
+    if (typeof window === "undefined") return INITIAL_PROCESSOS;
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_PREFIX + "processos");
+      if (stored) {
+        const parsed: Processo[] = JSON.parse(stored);
+        const filtered = parsed.filter(
+          (p) => !["proc-1", "proc-2", "proc-3", "proc-4", "proc-5"].includes(p.id)
+        );
+        if (filtered.length !== parsed.length) {
+          localStorage.setItem(STORAGE_KEY_PREFIX + "processos", JSON.stringify(filtered));
+        }
+        return filtered;
+      }
+      return INITIAL_PROCESSOS;
+    } catch {
+      return INITIAL_PROCESSOS;
+    }
   });
 
   const [isSupabaseOnline, setIsSupabaseOnline] = useState<boolean>(isSupabaseConfigured);
@@ -224,7 +417,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ]);
 
       if (unitsRes.data && unitsRes.data.length > 0) {
-        setUnits(unitsRes.data);
+        setUnits(mergeOfficialUnits(unitsRes.data));
       }
       if (cidsRes.data && cidsRes.data.length > 0) {
         setCids(cidsRes.data);
@@ -446,10 +639,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Efeitos para persistência em localStorage (fallback offline contínuo)
-  useEffect(() => saveToStorage("units", units), [units]);
+  useEffect(() => saveToStorage("units_v3", units), [units]);
   useEffect(() => saveToStorage("profiles", profiles), [profiles]);
   useEffect(() => saveToStorage("cids", cids), [cids]);
   useEffect(() => saveToStorage("medications", medications), [medications]);
+  useEffect(() => saveToStorage("origens", origens), [origens]);
+  useEffect(() => saveToStorage("diresList", diresList), [diresList]);
+  useEffect(() => saveToStorage("nucleos", nucleos), [nucleos]);
+  useEffect(() => saveToStorage("bases", bases), [bases]);
+  useEffect(() => saveToStorage("municipios", municipios), [municipios]);
+  useEffect(() => saveToStorage("otherMedications", otherMedications), [otherMedications]);
+  useEffect(() => saveToStorage("tiposParecer", tiposParecer), [tiposParecer]);
+  useEffect(() => saveToStorage("processos", processos), [processos]);
   useEffect(() => {
     if (isDemoMode) {
       saveToStorage("patients", patients);
@@ -804,6 +1005,72 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (error) {
           console.error("Erro ao atualizar atendimento no Supabase:", error);
           return { success: false, error: error.message };
+        }
+
+        // Atualização dos PRFs (consultation_prfs) no Supabase
+        if (data.prfs !== undefined) {
+          const { error: prfDelError } = await client
+            .from("consultation_prfs")
+            .delete()
+            .eq("consultation_id", consultationId);
+
+          if (prfDelError) {
+            console.error("Erro ao limpar PRFs anteriores:", prfDelError);
+          }
+
+          if (data.prfs && data.prfs.length > 0) {
+            const prfRows = data.prfs.map((prf) => ({
+              id:
+                prf.id &&
+                prf.id.includes("-") &&
+                !prf.id.startsWith("prf-temp-") &&
+                !prf.id.startsWith("prf-edit-") &&
+                !prf.id.startsWith("prf-inherited-")
+                  ? prf.id
+                  : generateUUID(),
+              consultation_id: consultationId,
+              medication_id:
+                prf.medication_id && prf.medication_id.includes("-")
+                  ? prf.medication_id
+                  : null,
+              category: prf.category,
+              status: prf.status,
+              description: prf.description || null,
+            }));
+            const { error: prfInsError } = await client
+              .from("consultation_prfs")
+              .insert(prfRows);
+
+            if (prfInsError) {
+              console.error("Erro ao inserir PRFs atualizados:", prfInsError);
+            }
+          }
+        }
+
+        // Atualização de medicamentos avaliados (consultation_medications) se fornecido
+        if (data.medications !== undefined) {
+          const { error: medDelError } = await client
+            .from("consultation_medications")
+            .delete()
+            .eq("consultation_id", consultationId);
+
+          if (medDelError) {
+            console.error("Erro ao limpar medicamentos da consulta:", medDelError);
+          }
+
+          if (data.medications && data.medications.length > 0) {
+            const medRows = data.medications.map((m) => ({
+              consultation_id: consultationId,
+              medication_id: m.id,
+            }));
+            const { error: medInsError } = await client
+              .from("consultation_medications")
+              .insert(medRows);
+
+            if (medInsError) {
+              console.error("Erro ao inserir medicamentos da consulta:", medInsError);
+            }
+          }
         }
       }
 
@@ -1275,7 +1542,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     password: string;
     crf?: string;
     unit_id?: string | null;
-    role: "pharmacist" | "admin" | "viewer";
+    role: Role;
   }): Promise<{ success: boolean; error?: string }> => {
     try {
       if (isSupabaseConfigured && supabase) {
@@ -1317,6 +1584,450 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err: any) {
       return { success: false, error: err?.message || "Erro inesperado ao registrar usuário." };
     }
+  };
+
+  // --- MÉTODOS CIMBAHIA ---
+
+  // 1. Origens
+  const addOrigem = async (origem: Omit<Origem, "id">): Promise<Origem> => {
+    const newOrigem: Origem = {
+      ...origem,
+      id: generateUUID(),
+      created_at: new Date().toISOString(),
+    };
+    setOrigens((prev) => [newOrigem, ...prev]);
+    return newOrigem;
+  };
+
+  const updateOrigem = async (id: string, data: Partial<Origem>): Promise<void> => {
+    setOrigens((prev) => prev.map((o) => (o.id === id ? { ...o, ...data } : o)));
+  };
+
+  const deleteOrigem = async (id: string): Promise<void> => {
+    setOrigens((prev) => prev.filter((o) => o.id !== id));
+  };
+
+  // 2. DIRES
+  const addDires = async (dires: Omit<Dires, "id">): Promise<Dires> => {
+    const newDires: Dires = {
+      ...dires,
+      id: generateUUID(),
+      created_at: new Date().toISOString(),
+    };
+    setDiresList((prev) => [newDires, ...prev]);
+    return newDires;
+  };
+
+  const updateDires = async (id: string, data: Partial<Dires>): Promise<void> => {
+    setDiresList((prev) => prev.map((d) => (d.id === id ? { ...d, ...data } : d)));
+  };
+
+  const deleteDires = async (id: string): Promise<void> => {
+    setDiresList((prev) => prev.filter((d) => d.id !== id));
+  };
+
+  // 3. Núcleos
+  const addNucleo = async (nucleo: Omit<Nucleo, "id">): Promise<Nucleo> => {
+    const newNucleo: Nucleo = {
+      ...nucleo,
+      id: generateUUID(),
+      created_at: new Date().toISOString(),
+    };
+    setNucleos((prev) => [newNucleo, ...prev]);
+    return newNucleo;
+  };
+
+  const updateNucleo = async (id: string, data: Partial<Nucleo>): Promise<void> => {
+    setNucleos((prev) => prev.map((n) => (n.id === id ? { ...n, ...data } : n)));
+  };
+
+  const deleteNucleo = async (id: string): Promise<void> => {
+    setNucleos((prev) => prev.filter((n) => n.id !== id));
+  };
+
+  // 4. Municípios
+  const addMunicipio = async (mun: Omit<Municipio, "id">): Promise<Municipio> => {
+    const newMun: Municipio = {
+      ...mun,
+      id: generateUUID(),
+      created_at: new Date().toISOString(),
+    };
+    setMunicipios((prev) => [newMun, ...prev]);
+    return newMun;
+  };
+
+  const updateMunicipio = async (id: string, data: Partial<Municipio>): Promise<void> => {
+    setMunicipios((prev) => prev.map((m) => (m.id === id ? { ...m, ...data } : m)));
+  };
+
+  const deleteMunicipio = async (id: string): Promise<void> => {
+    setMunicipios((prev) => prev.filter((m) => m.id !== id));
+  };
+
+  // 5. Outros Medicamentos
+  const addOtherMedication = async (med: Omit<OtherMedication, "id" | "created_at">): Promise<OtherMedication> => {
+    const newMed: OtherMedication = {
+      ...med,
+      id: generateUUID(),
+      created_at: new Date().toISOString(),
+    };
+    setOtherMedications((prev) => [newMed, ...prev]);
+    return newMed;
+  };
+
+  const updateOtherMedication = async (id: string, data: Partial<OtherMedication>): Promise<void> => {
+    setOtherMedications((prev) => prev.map((m) => (m.id === id ? { ...m, ...data, updated_at: new Date().toISOString() } : m)));
+  };
+
+  const toggleOtherMedicationActive = async (id: string, active: boolean): Promise<void> => {
+    setOtherMedications((prev) => prev.map((m) => (m.id === id ? { ...m, active } : m)));
+  };
+
+  // 5.1 Fármacos & Apresentações Unificados (Anvisa / SUS)
+  const addFarmaco = async (farmaco: Omit<Farmaco, "id">): Promise<Farmaco> => {
+    const newF: Farmaco = {
+      ...farmaco,
+      id: generateUUID(),
+      created_at: new Date().toISOString(),
+    };
+    setFarmacos((prev) => [newF, ...prev]);
+    return newF;
+  };
+
+  const updateFarmaco = async (id: string, data: Partial<Farmaco>): Promise<void> => {
+    setFarmacos((prev) =>
+      prev.map((f) => (f.id === id ? { ...f, ...data, updated_at: new Date().toISOString() } : f))
+    );
+  };
+
+  const toggleFarmacoActive = async (id: string, active: boolean): Promise<void> => {
+    setFarmacos((prev) => prev.map((f) => (f.id === id ? { ...f, active } : f)));
+  };
+
+  const deleteFarmaco = async (id: string): Promise<void> => {
+    setFarmacos((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  // 6. Tipos de Parecer
+  const addTipoParecer = async (tp: Omit<TipoParecer, "id">): Promise<TipoParecer> => {
+    const newTp: TipoParecer = {
+      ...tp,
+      id: generateUUID(),
+      created_at: new Date().toISOString(),
+    };
+    setTiposParecer((prev) => [newTp, ...prev]);
+    return newTp;
+  };
+
+  const updateTipoParecer = async (id: string, data: Partial<TipoParecer>): Promise<void> => {
+    setTiposParecer((prev) => prev.map((t) => (t.id === id ? { ...t, ...data } : t)));
+  };
+
+  const toggleTipoParecerActive = async (id: string, active: boolean): Promise<void> => {
+    setTiposParecer((prev) => prev.map((t) => (t.id === id ? { ...t, active } : t)));
+  };
+
+  // 7. Importador em lote de CIDs da Planilha
+  const importCIDsBatch = async (
+    rawCids: Array<{ code: string; description: string; chapter?: string; group_name?: string }>
+  ): Promise<{ addedCount: number; updatedCount: number }> => {
+    let addedCount = 0;
+    let updatedCount = 0;
+
+    setCids((prev) => {
+      const map = new Map(prev.map((c) => [c.code.toUpperCase().trim(), c]));
+      const toAdd: CID[] = [];
+
+      rawCids.forEach((item) => {
+        const cleanCode = item.code.toUpperCase().trim();
+        if (!cleanCode) return;
+
+        if (map.has(cleanCode)) {
+          const existing = map.get(cleanCode)!;
+          existing.description = item.description || existing.description;
+          if (item.chapter) existing.chapter = item.chapter;
+          if (item.group_name) existing.group_name = item.group_name;
+          updatedCount++;
+        } else {
+          const newC: CID = {
+            id: generateUUID(),
+            code: cleanCode,
+            description: item.description,
+            chapter: item.chapter || null,
+            group_name: item.group_name || null,
+            active: true,
+            created_at: new Date().toISOString(),
+          };
+          map.set(cleanCode, newC);
+          toAdd.push(newC);
+          addedCount++;
+        }
+      });
+
+      return [...toAdd, ...prev];
+    });
+
+    return { addedCount, updatedCount };
+  };
+
+  // 8. Atualização Integral de Unidade
+  const updateUnitFull = async (id: string, data: Partial<Unit>): Promise<void> => {
+    setUnits((prev) =>
+      prev.map((u) =>
+        u.id === id
+          ? {
+              ...u,
+              ...data,
+              updated_at: new Date().toISOString(),
+            }
+          : u
+      )
+    );
+  };
+
+  // 9. Processos SEI & Workflow
+  const addProcesso = async (proc: Omit<Processo, "id" | "created_at">): Promise<Processo> => {
+    const newProcesso: Processo = {
+      ...proc,
+      id: generateUUID(),
+      created_at: new Date().toISOString(),
+      historico: [
+        {
+          id: generateUUID(),
+          processo_id: "temp",
+          from_status: null,
+          to_status: proc.status,
+          user_id: currentUser?.id || "sistema",
+          user_name: currentUser?.full_name || "Sistema",
+          notes: "Processo autuado no CimBahia com base no SEI.",
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    };
+    newProcesso.historico![0].processo_id = newProcesso.id;
+    setProcessos((prev) => [newProcesso, ...prev]);
+    return newProcesso;
+  };
+
+  const updateProcesso = async (id: string, data: Partial<Processo>): Promise<void> => {
+    setProcessos((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, ...data, updated_at: new Date().toISOString() } : p))
+    );
+  };
+
+  const deleteProcesso = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    const target = processos.find((p) => p.id === id);
+    if (!target) {
+      return { success: false, error: "Processo SEI não encontrado." };
+    }
+
+    if (!isProcessoInFirstStatus(target)) {
+      return {
+        success: false,
+        error:
+          "Exclusão não permitida: O processo SEI só pode ser excluído no primeiro status (Triagem / Inicial). Processos em análise técnica ou concluídos possuem fé pública e registro regulatório permanente.",
+      };
+    }
+
+    setProcessos((prev) => prev.filter((p) => p.id !== id));
+    return { success: true };
+  };
+
+  const transicionarProcessoStatus = async (
+    processoId: string,
+    newStatus: ProcessoStatus,
+    notes?: string
+  ): Promise<void> => {
+    setProcessos((prev) =>
+      prev.map((p) => {
+        if (p.id !== processoId) return p;
+        const histItem = {
+          id: generateUUID(),
+          processo_id: p.id,
+          from_status: p.status,
+          to_status: newStatus,
+          user_id: currentUser?.id || "sistema",
+          user_name: currentUser?.full_name || "Sistema",
+          notes: notes || null,
+          timestamp: new Date().toISOString(),
+        };
+        return {
+          ...p,
+          status: newStatus,
+          days_in_current_status: 0,
+          historico: [histItem, ...(p.historico || [])],
+          updated_at: new Date().toISOString(),
+        };
+      })
+    );
+  };
+
+  const atribuirFarmaceuticoProcesso = async (
+    processoId: string,
+    pharmacistId: string
+  ): Promise<void> => {
+    const targetPharmacist = profiles.find((p) => p.id === pharmacistId);
+    setProcessos((prev) =>
+      prev.map((p) => {
+        if (p.id !== processoId) return p;
+        const histItem = {
+          id: generateUUID(),
+          processo_id: p.id,
+          from_status: p.status,
+          to_status: "em_analise_farmaceutica" as ProcessoStatus,
+          user_id: currentUser?.id || "sistema",
+          user_name: currentUser?.full_name || "Sistema",
+          notes: `Processo atribuído à parecerista: ${targetPharmacist?.full_name || "Farmacêutico"}`,
+          timestamp: new Date().toISOString(),
+        };
+        return {
+          ...p,
+          assigned_pharmacist_id: pharmacistId,
+          assigned_pharmacist: targetPharmacist || null,
+          assigned_at: new Date().toISOString(),
+          status: "em_analise_farmaceutica" as ProcessoStatus,
+          historico: [histItem, ...(p.historico || [])],
+          updated_at: new Date().toISOString(),
+        };
+      })
+    );
+  };
+
+  const emitirParecerProcesso = async (
+    processoId: string,
+    parecerData: {
+      tipo_parecer_id: string;
+      tipo_parecer_title: string;
+      regulatory_effect: TipoParecer["regulatory_effect"];
+      technical_justification: string;
+      clinical_foundation: string;
+      recommendations?: string | null;
+    }
+  ): Promise<void> => {
+    const activeVer: ParecerVersao = {
+      id: generateUUID(),
+      parecer_id: generateUUID(),
+      version_number: 1,
+      pharmacist_id: currentUser?.id || "anon",
+      pharmacist_name: currentUser?.full_name || "Farmacêutico Parecerista",
+      crf: currentUser?.crf || "CRF-BA",
+      tipo_parecer_id: parecerData.tipo_parecer_id,
+      tipo_parecer_title: parecerData.tipo_parecer_title,
+      regulatory_effect: parecerData.regulatory_effect,
+      technical_justification: parecerData.technical_justification,
+      clinical_foundation: parecerData.clinical_foundation,
+      recommendations: parecerData.recommendations || null,
+      signature_hash: `SHA256:${generateUUID().replace(/-/g, "")}`,
+      created_at: new Date().toISOString(),
+    };
+
+    const finalStatus: ProcessoStatus =
+      parecerData.regulatory_effect === "deferido"
+        ? "concluido_deferido"
+        : parecerData.regulatory_effect === "indeferido"
+        ? "concluido_indeferido"
+        : parecerData.regulatory_effect === "exigencia"
+        ? "em_exigencia"
+        : "concluido_parcial";
+
+    setProcessos((prev) =>
+      prev.map((p) => {
+        if (p.id !== processoId) return p;
+        const histItem = {
+          id: generateUUID(),
+          processo_id: p.id,
+          from_status: p.status,
+          to_status: finalStatus,
+          user_id: currentUser?.id || "sistema",
+          user_name: currentUser?.full_name || "Farmacêutico",
+          notes: `Parecer técnico emitido: ${parecerData.tipo_parecer_title}`,
+          timestamp: new Date().toISOString(),
+        };
+        return {
+          ...p,
+          status: finalStatus,
+          parecer: {
+            id: activeVer.parecer_id,
+            processo_id: p.id,
+            active_version: activeVer,
+            versions_history: [],
+          },
+          historico: [histItem, ...(p.historico || [])],
+          updated_at: new Date().toISOString(),
+        };
+      })
+    );
+  };
+
+  const retificarParecerProcesso = async (
+    processoId: string,
+    parecerData: {
+      tipo_parecer_id: string;
+      tipo_parecer_title: string;
+      regulatory_effect: TipoParecer["regulatory_effect"];
+      technical_justification: string;
+      clinical_foundation: string;
+      recommendations?: string | null;
+    },
+    rectificationReason: string
+  ): Promise<void> => {
+    setProcessos((prev) =>
+      prev.map((p) => {
+        if (p.id !== processoId || !p.parecer) return p;
+        const currentActive = p.parecer.active_version;
+        const newVerNum = currentActive.version_number + 1;
+
+        const newActiveVer: ParecerVersao = {
+          id: generateUUID(),
+          parecer_id: p.parecer.id,
+          version_number: newVerNum,
+          pharmacist_id: currentUser?.id || "anon",
+          pharmacist_name: currentUser?.full_name || "Farmacêutico Parecerista",
+          crf: currentUser?.crf || "CRF-BA",
+          tipo_parecer_id: parecerData.tipo_parecer_id,
+          tipo_parecer_title: parecerData.tipo_parecer_title,
+          regulatory_effect: parecerData.regulatory_effect,
+          technical_justification: parecerData.technical_justification,
+          clinical_foundation: parecerData.clinical_foundation,
+          recommendations: parecerData.recommendations || null,
+          rectification_reason: rectificationReason,
+          signature_hash: `SHA256:${generateUUID().replace(/-/g, "")}`,
+          created_at: new Date().toISOString(),
+        };
+
+        const finalStatus: ProcessoStatus =
+          parecerData.regulatory_effect === "deferido"
+            ? "concluido_deferido"
+            : parecerData.regulatory_effect === "indeferido"
+            ? "concluido_indeferido"
+            : parecerData.regulatory_effect === "exigencia"
+            ? "em_exigencia"
+            : "concluido_parcial";
+
+        const histItem = {
+          id: generateUUID(),
+          processo_id: p.id,
+          from_status: p.status,
+          to_status: finalStatus,
+          user_id: currentUser?.id || "sistema",
+          user_name: currentUser?.full_name || "Farmacêutico",
+          notes: `Parecer retificado (Versão ${newVerNum}). Motivo: ${rectificationReason}`,
+          timestamp: new Date().toISOString(),
+        };
+
+        return {
+          ...p,
+          status: finalStatus,
+          parecer: {
+            ...p.parecer,
+            active_version: newActiveVer,
+            versions_history: [currentActive, ...(p.parecer.versions_history || [])],
+          },
+          historico: [histItem, ...(p.historico || [])],
+          updated_at: new Date().toISOString(),
+        };
+      })
+    );
   };
 
   return (
@@ -1366,6 +2077,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         clearSimulatedData,
         restoreDemoData,
         registerUser,
+
+        // CimBahia
+        origens,
+        diresList,
+        nucleos,
+        bases,
+        municipios,
+        otherMedications,
+        tiposParecer,
+        processos,
+        addOrigem,
+        updateOrigem,
+        deleteOrigem,
+        addDires,
+        updateDires,
+        deleteDires,
+        addNucleo,
+        updateNucleo,
+        deleteNucleo,
+        addMunicipio,
+        updateMunicipio,
+        deleteMunicipio,
+        farmacos,
+        addFarmaco,
+        updateFarmaco,
+        toggleFarmacoActive,
+        deleteFarmaco,
+        addOtherMedication,
+        updateOtherMedication,
+        toggleOtherMedicationActive,
+        addTipoParecer,
+        updateTipoParecer,
+        toggleTipoParecerActive,
+        importCIDsBatch,
+        updateUnitFull,
+        addProcesso,
+        updateProcesso,
+        deleteProcesso,
+        transicionarProcessoStatus,
+        atribuirFarmaceuticoProcesso,
+        emitirParecerProcesso,
+        retificarParecerProcesso,
       }}
     >
       {children}

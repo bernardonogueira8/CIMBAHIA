@@ -19,9 +19,9 @@ const geistMono = Geist_Mono({
 export const instant = false;
 
 export const metadata: Metadata = {
-  title: "PharmaCare | Gestão do Cuidado Farmacêutico",
+  title: "CimBahia | Central Integrada de Regulação e Pareceres Farmacêuticos",
   description:
-    "Sistema Oficial de Monitoramento e Indicadores de Acompanhamento Farmacoterapêutico para Macrorregionais de Saúde.",
+    "Sistema Oficial de Regulação, Triagem e Emissão de Pareceres Farmacêuticos da Bahia com Integração SEI.",
   icons: {
     icon: "/logo.svg",
   },

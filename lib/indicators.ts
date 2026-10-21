@@ -1,52 +1,81 @@
-import { Consultation, MonthlyComplementaryData, Patient, IndicatorRow } from "./types";
+import { Consultation, MonthlyComplementaryData, Patient, IndicatorRow, Unit } from "./types";
 
 export interface IndicatorFilter {
   unitId?: string;
   macroregion?: string;
   year: number;
-  month?: number; // 1-12 or undefined (all months)
+  month?: number; // 1-12 or undefined / 0 (all months)
+  units?: Unit[];
+}
+
+function extractYearMonth(dateStr?: string | null): { year: number; month: number } | null {
+  if (!dateStr) return null;
+  const match = dateStr.match(/^(\d{4})-(\d{2})/);
+  if (match) {
+    return {
+      year: parseInt(match[1], 10),
+      month: parseInt(match[2], 10),
+    };
+  }
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth() + 1,
+  };
 }
 
 export function calculateIndicators(
   consultations: Consultation[],
   monthlyData: MonthlyComplementaryData[],
   patients: Patient[],
-  filter: IndicatorFilter
+  filter: IndicatorFilter,
+  unitsList?: Unit[]
 ): IndicatorRow[] {
-  // Filtrar consultas pelo período e unidade
+  const allUnits = unitsList || filter.units || [];
+
+  // Determinar quais IDs de unidades são válidos com base no filtro de unidade e macrorregião
+  let allowedUnitIds: Set<string> | null = null;
+  if (filter.unitId && filter.unitId !== "all") {
+    allowedUnitIds = new Set([filter.unitId]);
+  } else if (filter.macroregion && filter.macroregion !== "all") {
+    const macroUnitIds = allUnits
+      .filter((u) => u.macroregion === filter.macroregion)
+      .map((u) => u.id);
+    allowedUnitIds = new Set(macroUnitIds);
+  }
+
+  // Filtrar consultas pelo período e unidade/macrorregião
   const filteredConsultations = consultations.filter((c) => {
-    if (filter.unitId && c.unit_id !== filter.unitId) return false;
-    const cDate = new Date(c.consultation_date);
-    const cYear = cDate.getUTCFullYear();
-    const cMonth = cDate.getUTCMonth() + 1;
-    if (cYear !== filter.year) return false;
-    if (filter.month && cMonth !== filter.month) return false;
+    if (allowedUnitIds && !allowedUnitIds.has(c.unit_id)) return false;
+    const ym = extractYearMonth(c.consultation_date);
+    if (!ym) return false;
+    if (ym.year !== filter.year) return false;
+    if (filter.month && filter.month !== 0 && ym.month !== filter.month) return false;
     return true;
   });
 
   // Filtrar dados mensais complementares
   const filteredMonthly = monthlyData.filter((m) => {
-    if (filter.unitId && m.unit_id !== filter.unitId) return false;
+    if (allowedUnitIds && !allowedUnitIds.has(m.unit_id)) return false;
     if (m.year !== filter.year) return false;
-    if (filter.month && m.month !== filter.month) return false;
+    if (filter.month && filter.month !== 0 && m.month !== filter.month) return false;
     return true;
   });
 
   // Filtrar pacientes
   const filteredPatients = patients.filter((p) => {
-    if (filter.unitId && p.unit_id !== filter.unitId) return false;
+    if (allowedUnitIds && !allowedUnitIds.has(p.unit_id)) return false;
     return true;
   });
 
   // 1. Indicador 1: Número de pacientes em Acompanhamento Farmacoterapêutico
+  // Fonte oficial: Fechamento Mensal AFSESAB (total_patients_in_followup). Se não preenchido, é 0.
   const monthlyTotalFollowup = filteredMonthly.reduce(
     (acc, m) => acc + (m.total_patients_in_followup || 0),
     0
   );
-  const activePatientsCount = filteredPatients.filter(
-    (p) => p.status === "em_acompanhamento"
-  ).length;
-  const ind1Result = monthlyTotalFollowup > 0 ? monthlyTotalFollowup : activePatientsCount;
+  const ind1Result = monthlyTotalFollowup;
 
   // 2. Indicador 2: Pacientes atendidos no Acompanhamento Farmacoterapêutico no mês
   // COUNT(DISTINCT patient_id) onde is_pharmaceutical_guidance_only = false

@@ -2,704 +2,727 @@
 
 import React, { useState, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
+  FileText,
   PlusCircle,
   Search,
-  Filter,
-  Stethoscope,
-  Calendar,
-  FileText,
+  Clock,
   AlertTriangle,
-  CheckCircle,
-  Eye,
-  Lock,
-  RefreshCw,
-  Pencil,
-  Building2,
   CheckCircle2,
-  AlertCircle,
+  Eye,
+  UserCheck,
+  Building,
+  Pill,
+  ShieldCheck,
+  ArrowRight,
+  Filter,
+  Trash2,
 } from "lucide-react";
 import { useApp } from "@/lib/context/AppContext";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { formatDate } from "@/lib/utils";
-import { Consultation } from "@/lib/types";
+import { Processo, ProcessoStatus, isProcessoInFirstStatus } from "@/lib/types";
 
 export default function AtendimentosPage() {
+  const router = useRouter();
   const {
-    consultations,
-    patients,
-    cids,
-    units,
-    profiles,
+    processos,
     currentUser,
-    updateConsultation,
-    selectedUnitId,
-    canEdit,
-    activeUnit,
-    isSupabaseOnline,
-    isSyncing,
-    refreshFromSupabase,
+    origens,
+    atribuirFarmaceuticoProcesso,
+    transicionarProcessoStatus,
+    deleteProcesso,
   } = useApp();
 
-  const isAdmin = currentUser?.role === "admin";
+  const isFarmaceutico =
+    currentUser?.role === "farmaceutico" ||
+    currentUser?.role === "admin" ||
+    currentUser?.role === "gestor";
 
+  // Filtros
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterType, setFilterType] = useState<string>("all");
-  const [selectedConsultation, setSelectedConsultation] = useState<Consultation | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [origemFilter, setOrigemFilter] = useState<string>("all");
+  const [priorityFilter, setPriorityFilter] = useState<string>("all");
 
-  // Estados do Modal de Edição (Admin)
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editingConsultation, setEditingConsultation] = useState<Consultation | null>(null);
-  const [editUnitId, setEditUnitId] = useState("");
-  const [editConsultationDate, setEditConsultationDate] = useState("");
-  const [editPharmacistId, setEditPharmacistId] = useState("");
-  const [editPrimaryCidId, setEditPrimaryCidId] = useState("");
-  const [editIsNewPatient, setEditIsNewPatient] = useState(false);
-  const [editIsGuidanceOnly, setEditIsGuidanceOnly] = useState(false);
-  const [editPharmaceuticalDischarge, setEditPharmaceuticalDischarge] = useState(false);
-  const [editInterventionsCount, setEditInterventionsCount] = useState<number>(0);
-  const [editClinicalNotes, setEditClinicalNotes] = useState("");
+  // Estado para exclusão de processo
+  const [processoToDelete, setProcessoToDelete] = useState<Processo | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const [editLoading, setEditLoading] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
-  const [editSuccess, setEditSuccess] = useState(false);
-
-  const handleOpenEditModal = (c: Consultation) => {
-    setEditingConsultation(c);
-    setEditUnitId(c.unit_id || "");
-    setEditConsultationDate(c.consultation_date ? c.consultation_date.substring(0, 10) : "");
-    setEditPharmacistId(c.pharmacist_id || "");
-    setEditPrimaryCidId(c.primary_cid_id || "");
-    setEditIsNewPatient(c.is_new_patient ?? false);
-    setEditIsGuidanceOnly(c.is_pharmaceutical_guidance_only ?? false);
-    setEditPharmaceuticalDischarge(c.pharmaceutical_discharge ?? false);
-    setEditInterventionsCount(c.interventions_count ?? 0);
-    setEditClinicalNotes(c.clinical_notes || "");
-    setEditError(null);
-    setEditSuccess(false);
-    setIsEditModalOpen(true);
+  // Mapeamento normalizado para os 4 status simplificados
+  const getNormalizedStage = (st: ProcessoStatus): "triagem" | "aguardando_parecer" | "em_analise" | "concluido" => {
+    if (st === "triagem" || st === "aguardando_triagem" || st === "em_triagem") return "triagem";
+    if (st === "aguardando_parecer") return "aguardando_parecer";
+    if (st === "em_analise" || st === "em_analise_farmaceutica" || st === "em_exigencia") {
+      return "em_analise";
+    }
+    return "concluido";
   };
 
-  const handleSaveEditConsultation = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingConsultation) return;
+  // Filtragem dos processos
+  const filteredProcessos = useMemo(() => {
+    return processos.filter((p) => {
+      // Busca textual
+      const matchesSearch =
+        p.numero_sei.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (p.paciente?.full_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (p.paciente?.cpf || "").includes(searchTerm) ||
+        (p.municipio?.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (p.assunto || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.items.some(
+          (item) =>
+            (item.farmaco_substancia || item.medication_name).toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.cid_code.toLowerCase().includes(searchTerm.toLowerCase())
+        );
 
-    if (!editUnitId) {
-      setEditError("Por favor, selecione a Unidade de Atendimento.");
-      return;
-    }
+      if (!matchesSearch) return false;
 
-    setEditLoading(true);
-    setEditError(null);
+      // Status
+      if (statusFilter !== "all") {
+        const stage = getNormalizedStage(p.status);
+        if (statusFilter === "triagem" && stage !== "triagem") return false;
+        if (statusFilter === "aguardando_parecer" && stage !== "aguardando_parecer") return false;
+        if (statusFilter === "em_analise" && stage !== "em_analise") return false;
+        if (statusFilter === "concluido" && stage !== "concluido") return false;
+      }
 
-    const res = await updateConsultation(editingConsultation.id, {
-      unit_id: editUnitId,
-      consultation_date: editConsultationDate,
-      pharmacist_id: editPharmacistId,
-      primary_cid_id: editPrimaryCidId,
-      is_new_patient: editIsNewPatient,
-      is_pharmaceutical_guidance_only: editIsGuidanceOnly,
-      pharmaceutical_discharge: editPharmaceuticalDischarge,
-      interventions_count: Number(editInterventionsCount) || 0,
-      clinical_notes: editClinicalNotes,
-    });
-
-    setEditLoading(false);
-
-    if (!res.success) {
-      setEditError(res.error || "Erro ao atualizar atendimento.");
-    } else {
-      setEditSuccess(true);
-      setTimeout(() => {
-        setIsEditModalOpen(false);
-        setEditingConsultation(null);
-        setEditSuccess(false);
-      }, 1000);
-    }
-  };
-
-  // Filtragem
-  const filteredConsultations = useMemo(() => {
-    return consultations.filter((c) => {
-      // Filtro de unidade
-      if (selectedUnitId !== "all" && c.unit_id !== selectedUnitId) {
+      // Origem
+      if (origemFilter !== "all" && p.origem_id !== origemFilter) {
         return false;
       }
 
-      // Tipo de consulta
-      if (filterType === "new" && !c.is_new_patient) return false;
-      if (filterType === "return" && c.is_new_patient) return false;
-      if (filterType === "guidance" && !c.is_pharmaceutical_guidance_only) return false;
-      if (filterType === "discharge" && !c.pharmaceutical_discharge) return false;
-
-      // Busca textual
-      if (searchTerm.trim()) {
-        const term = searchTerm.toLowerCase();
-        const pat = patients.find((p) => p.id === c.patient_id);
-        const cid = cids.find((cd) => cd.id === c.primary_cid_id);
-        const matchName = pat?.full_name.toLowerCase().includes(term);
-        const matchCpf = pat?.cpf.includes(term);
-        const matchCid = cid?.code.toLowerCase().includes(term) || cid?.description.toLowerCase().includes(term);
-        if (!matchName && !matchCpf && !matchCid) return false;
+      // Prioridade
+      if (priorityFilter !== "all" && p.priority !== priorityFilter) {
+        return false;
       }
 
       return true;
     });
-  }, [consultations, selectedUnitId, filterType, searchTerm, patients, cids]);
+  }, [processos, searchTerm, statusFilter, origemFilter, priorityFilter]);
+
+  // Contadores para os Cards de Métricas (Sequência de 4 etapas)
+  const metrics = useMemo(() => {
+    const total = processos.length;
+    let triagem = 0;
+    let aguardandoParecer = 0;
+    let emAnalise = 0;
+    let concluido = 0;
+
+    processos.forEach((p) => {
+      const stage = getNormalizedStage(p.status);
+      if (stage === "triagem") triagem++;
+      else if (stage === "aguardando_parecer") aguardandoParecer++;
+      else if (stage === "em_analise") emAnalise++;
+      else if (stage === "concluido") concluido++;
+    });
+
+    const gargalos = processos.filter(
+      (p) => (p.days_in_current_status || 0) >= 5 && getNormalizedStage(p.status) !== "concluido"
+    ).length;
+
+    return { total, triagem, aguardandoParecer, emAnalise, concluido, gargalos };
+  }, [processos]);
+
+  // Navegar para a tela individual do processo
+  const handleOpenProcesso = (procId: string) => {
+    router.push(`/atendimentos/${procId}`);
+  };
+
+  // Puxar da Fila / Assumir Parecer e abrir diretamente a tela de análise
+  const handleAssumirParecer = async (procId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentUser) return;
+    try {
+      await atribuirFarmaceuticoProcesso(procId, currentUser.id);
+      await transicionarProcessoStatus(
+        procId,
+        "em_analise",
+        `Processo assumido da fila por ${currentUser.full_name}.`
+      );
+      router.push(`/atendimentos/${procId}`);
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao assumir o parecer.");
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!processoToDelete) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await deleteProcesso(processoToDelete.id);
+      if (!res.success) {
+        setDeleteError(res.error || "Não foi possível excluir o processo.");
+      } else {
+        setProcessoToDelete(null);
+      }
+    } catch (err: unknown) {
+      setDeleteError((err as Error).message || "Erro ao excluir processo.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const getPriorityBadge = (priority: Processo["priority"]) => {
+    switch (priority) {
+      case "urgente":
+        return (
+          <Badge variant="danger" className="text-[10px] uppercase font-semibold">
+            Urgente
+          </Badge>
+        );
+      case "judicial":
+        return (
+          <Badge className="text-[10px] uppercase font-semibold bg-purple-700 text-white">
+            Judicial
+          </Badge>
+        );
+      default:
+        return (
+          <Badge variant="outline" className="text-[10px] text-slate-600 bg-slate-50">
+            Normal
+          </Badge>
+        );
+    }
+  };
+
+  const getStageBadge = (status: ProcessoStatus) => {
+    const stage = getNormalizedStage(status);
+    switch (stage) {
+      case "concluido":
+        return (
+          <Badge className="bg-emerald-600 text-white text-[10px] flex items-center gap-1 font-semibold">
+            <CheckCircle2 className="h-3 w-3" />
+            Concluído
+          </Badge>
+        );
+      case "em_analise":
+        return (
+          <Badge className="bg-amber-600 text-white text-[10px] flex items-center gap-1 font-semibold">
+            <ShieldCheck className="h-3 w-3" />
+            Em Análise
+          </Badge>
+        );
+      case "aguardando_parecer":
+        return (
+          <Badge className="bg-blue-600 text-white text-[10px] flex items-center gap-1 font-semibold">
+            <Clock className="h-3 w-3" />
+            Aguardando Parecer
+          </Badge>
+        );
+      default:
+        return (
+          <Badge className="bg-slate-600 text-white text-[10px] flex items-center gap-1 font-semibold">
+            <FileText className="h-3 w-3" />
+            Triagem
+          </Badge>
+        );
+    }
+  };
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#E5E7EB]">
+      {/* Cabeçalho */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-[#171A20] tracking-tight">
-            Consultas & Atendimentos Farmacêuticos
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            Fila de Atendimentos & Processos SEI
           </h1>
-          <p className="text-xs text-[#5C5E62] mt-0.5">
-            Registro clínico de consultas, avaliação da farmacoterapia e evolução farmacêutica.
+          <p className="text-xs text-slate-500 mt-1">
+            Gestão unificada do fluxo: Criar Processo (Triagem) → Aguardando Parecer → Em Análise → Concluído.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          {isSupabaseOnline && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refreshFromSupabase()}
-              disabled={isSyncing}
-              className="text-xs"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isSyncing ? "animate-spin" : ""}`} />
-              {isSyncing ? "Sincronizando..." : "Sincronizar Supabase"}
+          <Link href="/atendimentos/novo">
+            <Button className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-2 text-xs">
+              <PlusCircle className="h-4 w-4" />
+              Novo Processo SEI
             </Button>
-          )}
-          {canEdit ? (
-            <Link href="/atendimentos/novo">
-              <Button variant="primary" size="md">
-                <PlusCircle className="w-4 h-4 mr-1.5" />
-                Novo Atendimento
-              </Button>
-            </Link>
-          ) : (
-            <Button
-              variant="outline"
-              size="md"
-              disabled
-              title="Ação desabilitada em modo Somente Leitura"
-            >
-              <Lock className="w-3.5 h-3.5 mr-1.5" />
-              Novo Atendimento (Bloqueado)
-            </Button>
-          )}
+          </Link>
         </div>
       </div>
 
-      {/* Filter Toolbar */}
+      {/* Cards de Métricas Operacionais (4 Etapas Sequenciais) */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <Card
+          onClick={() => setStatusFilter("all")}
+          className={`cursor-pointer transition-all border ${
+            statusFilter === "all" ? "ring-2 ring-emerald-500 bg-emerald-50/20" : "hover:border-slate-300"
+          }`}
+        >
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-500">Total Geral</span>
+              <FileText className="h-4 w-4 text-slate-400" />
+            </div>
+            <div className="text-2xl font-bold text-slate-800 mt-1">{metrics.total}</div>
+            <span className="text-[11px] text-slate-500">Processos autuados</span>
+          </CardContent>
+        </Card>
+
+        {/* 1. Criar Processo (Triagem) */}
+        <Card
+          onClick={() => setStatusFilter("triagem")}
+          className={`cursor-pointer transition-all border ${
+            statusFilter === "triagem" ? "ring-2 ring-slate-500 bg-slate-50" : "hover:border-slate-300"
+          }`}
+        >
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-700">1. Triagem</span>
+              <FileText className="h-4 w-4 text-slate-500" />
+            </div>
+            <div className="text-2xl font-bold text-slate-800 mt-1">{metrics.triagem}</div>
+            <span className="text-[11px] text-slate-500">Abertura de processo</span>
+          </CardContent>
+        </Card>
+
+        {/* 2. Aguardando Parecer */}
+        <Card
+          onClick={() => setStatusFilter("aguardando_parecer")}
+          className={`cursor-pointer transition-all border ${
+            statusFilter === "aguardando_parecer" ? "ring-2 ring-blue-500 bg-blue-50/20" : "hover:border-slate-300"
+          }`}
+        >
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-blue-700">2. Aguardando Parecer</span>
+              <Clock className="h-4 w-4 text-blue-500" />
+            </div>
+            <div className="text-2xl font-bold text-blue-700 mt-1">{metrics.aguardandoParecer}</div>
+            <span className="text-[11px] text-slate-500">Fila para assumir</span>
+          </CardContent>
+        </Card>
+
+        {/* 3. Em Análise */}
+        <Card
+          onClick={() => setStatusFilter("em_analise")}
+          className={`cursor-pointer transition-all border ${
+            statusFilter === "em_analise" ? "ring-2 ring-amber-500 bg-amber-50/20" : "hover:border-slate-300"
+          }`}
+        >
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-amber-700">3. Em Análise</span>
+              <ShieldCheck className="h-4 w-4 text-amber-500" />
+            </div>
+            <div className="text-2xl font-bold text-amber-700 mt-1">{metrics.emAnalise}</div>
+            <span className="text-[11px] text-slate-500">Com parecerista</span>
+          </CardContent>
+        </Card>
+
+        {/* 4. Concluído */}
+        <Card
+          onClick={() => setStatusFilter("concluido")}
+          className={`cursor-pointer transition-all border ${
+            statusFilter === "concluido" ? "ring-2 ring-emerald-500 bg-emerald-50/20" : "hover:border-slate-300"
+          }`}
+        >
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-emerald-700">4. Concluído</span>
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            </div>
+            <div className="text-2xl font-bold text-emerald-700 mt-1">{metrics.concluido}</div>
+            <span className="text-[11px] text-slate-500">Parecer finalizado</span>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Alerta de Gargalos Operacionais */}
+      {metrics.gargalos > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3.5 flex items-center justify-between text-amber-900">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold">
+                Atenção: {metrics.gargalos} processo(s) parado(s) há 5 dias ou mais sem movimentação!
+              </p>
+              <p className="text-xs text-amber-700">
+                Processos prioritários requerem análise técnica imediata para não ultrapassar o SLA da SESAB.
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-amber-300 text-amber-800 hover:bg-amber-100 text-xs"
+            onClick={() => {
+              setSearchTerm("");
+              setStatusFilter("all");
+            }}
+          >
+            Ver Todos
+          </Button>
+        </div>
+      )}
+
+      {/* Barra de Filtros */}
       <Card>
-        <CardContent className="p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="sm:col-span-2 relative">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex flex-col md:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <Input
-                placeholder="Buscar por nome do paciente, CPF ou código CID-10..."
+                placeholder="Buscar por Nº SEI, Paciente, CPF, Fármaco, CID ou Município..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9"
+                className="pl-9 bg-slate-50 border-slate-200 text-xs"
               />
-              <Search className="w-4 h-4 text-[#9CA3AF] absolute left-3 top-2.5 pointer-events-none" />
             </div>
 
-            <div>
+            <div className="flex items-center gap-2 flex-wrap">
               <select
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
-                className="w-full h-9 px-3 text-xs bg-[#F4F4F6] border border-[#D1D5DB] rounded text-[#171A20] focus:ring-1 focus:ring-[#171A20] focus:outline-none"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="h-10 text-xs rounded-md border border-slate-200 bg-white px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
               >
-                <option value="all">Todos os tipos de atendimento</option>
-                <option value="new">1ª Consulta (Paciente Novo)</option>
-                <option value="return">Consulta de Retorno</option>
-                <option value="guidance">Apenas Orientação</option>
-                <option value="discharge">Com Alta Farmacêutica</option>
+                <option value="all">Todos os Status</option>
+                <option value="triagem">1. Criar Processo (Triagem)</option>
+                <option value="aguardando_parecer">2. Aguardando Parecer</option>
+                <option value="em_analise">3. Em Análise</option>
+                <option value="concluido">4. Concluído</option>
               </select>
+
+              <select
+                value={origemFilter}
+                onChange={(e) => setOrigemFilter(e.target.value)}
+                className="h-10 text-xs rounded-md border border-slate-200 bg-white px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="all">Todas as Origens</option>
+                {origens.map((origem) => (
+                  <option key={origem.id} value={origem.id}>
+                    {origem.sigla ? `${origem.sigla} - ${origem.name}` : origem.name}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="h-10 text-xs rounded-md border border-slate-200 bg-white px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="all">Todas as Prioridades</option>
+                <option value="normal">Normal</option>
+                <option value="urgente">Urgente</option>
+                <option value="judicial">Mandado Judicial</option>
+              </select>
+
+              {(searchTerm || statusFilter !== "all" || origemFilter !== "all" || priorityFilter !== "all") && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSearchTerm("");
+                    setStatusFilter("all");
+                    setOrigemFilter("all");
+                    setPriorityFilter("all");
+                  }}
+                  className="text-xs text-slate-500 hover:text-slate-800"
+                >
+                  Limpar
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Tabela de Atendimentos */}
+      {/* Lista / Tabela de Processos SEI */}
       <Card>
+        <CardHeader className="p-4 border-b border-slate-100 flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-base font-semibold text-slate-800">
+              Processos em Tramitação ({filteredProcessos.length})
+            </CardTitle>
+            <CardDescription className="text-xs text-slate-500">
+              Clique sobre um processo para abrir a tela de análise técnica e decisões por Fármaco + CID.
+            </CardDescription>
+          </div>
+        </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-[#171A20] text-white border-b border-[#282C34]">
-                  <th className="py-2.5 px-3 font-semibold">Data</th>
-                  <th className="py-2.5 px-3 font-semibold">Paciente</th>
-                  <th className="py-2.5 px-3 font-semibold">Unidade</th>
-                  <th className="py-2.5 px-3 font-semibold">Tipo</th>
-                  <th className="py-2.5 px-3 font-semibold">Diagnóstico (CID-10)</th>
-                  <th className="py-2.5 px-3 font-semibold">PRFs Identificados</th>
-                  <th className="py-2.5 px-3 font-semibold text-center">Intervenções</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E5E7EB] bg-white">
-                {filteredConsultations.length === 0 ? (
+          {filteredProcessos.length === 0 ? (
+            <div className="py-12 px-4 text-center text-slate-500 space-y-3">
+              <FileText className="h-12 w-12 mx-auto text-slate-300" />
+              <div>
+                <p className="font-semibold text-slate-800 text-sm">Fila de Processos Limpa & Pronta para Operação Real</p>
+                <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                  Nenhum processo anterior registrado. Comece autuando novos processos SEI para alimentar a fila de triagem e a avaliação dos pareceristas.
+                </p>
+              </div>
+              <div>
+                <Link href="/atendimentos/novo">
+                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs">
+                    <PlusCircle className="w-3.5 h-3.5 mr-1.5" />
+                    Autuar Primeiro Processo SEI
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-xs text-[#5C5E62]">
-                      Nenhum atendimento farmacêutico localizado com os filtros aplicados.
-                    </td>
+                    <th className="py-3 px-4">Processo SEI / Data</th>
+                    <th className="py-3 px-4">Requerente / Paciente</th>
+                    <th className="py-3 px-4">Município / BRS</th>
+                    <th className="py-3 px-4">Fármaco(s) & CID-10</th>
+                    <th className="py-3 px-4">Parecerista</th>
+                    <th className="py-3 px-4">Status & SLA</th>
+                    <th className="py-3 px-4 text-right">Ação</th>
                   </tr>
-                ) : (
-                  filteredConsultations.map((c) => {
-                    const pat = patients.find((p) => p.id === c.patient_id);
-                    const cid = cids.find((cd) => cd.id === c.primary_cid_id);
-                    const unit = units.find((u) => u.id === c.unit_id);
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredProcessos.map((proc) => {
+                    const stage = getNormalizedStage(proc.status);
+                    const isDelayed = (proc.days_in_current_status || 0) >= 5 && stage !== "concluido";
+                    const canAssumir =
+                      isFarmaceutico &&
+                      (stage === "aguardando_parecer" ||
+                        (stage === "em_analise" && proc.assigned_pharmacist_id !== currentUser?.id));
 
                     return (
-                      <tr key={c.id} className="hover:bg-[#F9FAFB] transition-colors">
-                        <td className="py-3 px-3 font-medium text-[#171A20] whitespace-nowrap">
-                          {formatDate(c.consultation_date)}
-                        </td>
-                        <td className="py-3 px-3">
-                          <div className="font-semibold text-[#171A20]">
-                            {pat?.full_name || "Paciente não localizado"}
+                      <tr
+                        key={proc.id}
+                        onClick={() => handleOpenProcesso(proc.id)}
+                        className={`cursor-pointer transition-colors hover:bg-slate-50/80 ${
+                          isDelayed ? "bg-amber-50/30" : ""
+                        }`}
+                      >
+                        {/* Processo SEI & Data */}
+                        <td className="py-3 px-4">
+                          <div className="font-semibold text-slate-900 flex items-center gap-1.5">
+                            <span className="font-mono text-emerald-800">{proc.numero_sei}</span>
                           </div>
-                          <div className="text-[11px] text-[#5C5E62] font-mono">
-                            {pat?.cpf}
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[11px] text-slate-500">
+                              Entrada: {formatDate(proc.data_abertura)}
+                            </span>
+                            {getPriorityBadge(proc.priority)}
                           </div>
                         </td>
-                        <td className="py-3 px-3 text-[11px] text-[#5C5E62]">
-                          {unit?.name || "-"}
-                        </td>
-                        <td className="py-3 px-3">
-                          {c.is_pharmaceutical_guidance_only ? (
-                            <Badge variant="neutral">Orientação</Badge>
-                          ) : c.is_new_patient ? (
-                            <Badge variant="default">1ª Consulta</Badge>
-                          ) : (
-                            <Badge variant="outline">Retorno</Badge>
-                          )}
-                          {c.pharmaceutical_discharge && (
-                            <Badge variant="success" className="ml-1">
-                              Alta
+
+                        {/* Paciente */}
+                        <td className="py-3 px-4">
+                          <div className="font-medium text-slate-900 flex items-center gap-1.5">
+                            <span>{proc.paciente?.full_name || "Paciente não cadastrado"}</span>
+                            <Badge variant="outline" className="text-[9px]">
+                              {proc.paciente?.gender === "M"
+                                ? "M"
+                                : proc.paciente?.gender === "F"
+                                ? "F"
+                                : proc.paciente?.gender === "outro"
+                                ? "Outro"
+                                : "N/I"}
                             </Badge>
-                          )}
-                        </td>
-                        <td className="py-3 px-3">
-                          <div className="font-mono font-medium text-[#171A20]">
-                            {cid?.code}
                           </div>
-                          <div className="text-[11px] text-[#5C5E62] truncate max-w-[200px]">
-                            {cid?.description}
+                          <div className="text-[11px] text-slate-500 font-mono">
+                            {proc.paciente?.cpf_not_provided
+                              ? "CPF Não Informado"
+                              : `CPF: ${proc.paciente?.cpf || "---"}`}
                           </div>
                         </td>
-                        <td className="py-3 px-3">
-                          {c.prfs && c.prfs.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {c.prfs.map((prf, pIdx) => (
+
+                        {/* Município / BRS */}
+                        <td className="py-3 px-4">
+                          <div className="font-medium text-slate-800">
+                            {proc.municipio?.name ? `${proc.municipio.name} - BA` : "Bahia"}
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            {proc.unidade?.name || "Base Regional"}
+                          </div>
+                        </td>
+
+                        {/* Fármacos & CID-10 */}
+                        <td className="py-3 px-4">
+                          <div className="space-y-1 max-w-xs">
+                            {proc.items.slice(0, 2).map((item) => (
+                              <div key={item.id} className="flex items-center gap-1.5 text-[11px]">
                                 <Badge
-                                  key={pIdx}
-                                  variant={prf.status === "Resolvido" ? "success" : "warning"}
-                                  className="text-[10px]"
+                                  variant="outline"
+                                  className="text-[9px] px-1.5 py-0 bg-emerald-50 text-emerald-700 border-emerald-200"
                                 >
-                                  {prf.category}: {prf.status}
+                                  Fármaco
                                 </Badge>
-                              ))}
+                                <span className="truncate text-slate-700 font-medium">
+                                  {item.farmaco_substancia || item.medication_name}
+                                </span>
+                                <span className="text-slate-400 font-mono">
+                                  ({item.cid_nao_informado ? "N/I" : item.cid_code})
+                                </span>
+                              </div>
+                            ))}
+                            {proc.items.length > 2 && (
+                              <span className="text-[10px] text-slate-400 italic">
+                                +{proc.items.length - 2} outro(s) item(ns)
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Parecerista */}
+                        <td className="py-3 px-4">
+                          {proc.assigned_pharmacist ? (
+                            <div>
+                              <div className="font-medium text-slate-800">
+                                {proc.assigned_pharmacist.full_name}
+                              </div>
+                              <div className="text-[10px] text-slate-500">
+                                {proc.assigned_pharmacist.crf || "Farmacêutico(a)"}
+                              </div>
                             </div>
                           ) : (
-                            <span className="text-[#9CA3AF] text-[11px]">—</span>
+                            <span className="text-slate-400 italic text-[11px]">Fila Pública</span>
                           )}
                         </td>
-                        <td className="py-3 px-3 text-center font-bold text-[#171A20]">
-                          {c.interventions_count}
+
+                        {/* Status & SLA */}
+                        <td className="py-3 px-4">
+                          <div className="space-y-1">
+                            {getStageBadge(proc.status)}
+                            <div className="flex items-center gap-1 text-[11px]">
+                              {isDelayed ? (
+                                <span className="text-rose-600 font-medium flex items-center gap-0.5">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  {proc.days_in_current_status}d na etapa
+                                </span>
+                              ) : (
+                                <span className="text-slate-500">
+                                  {proc.days_in_current_status || 1}d na etapa
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </td>
-                        <td className="py-3 px-3 text-right whitespace-nowrap">
+
+                        {/* Ações */}
+                        <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1.5">
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => setSelectedConsultation(c)}
-                              className="text-xs"
-                            >
-                              <Eye className="w-3 h-3 mr-1" />
-                              Ver SOAP
-                            </Button>
-                            {isAdmin && (
+                            {canAssumir && (
                               <Button
-                                variant="outline"
                                 size="sm"
-                                onClick={() => handleOpenEditModal(c)}
-                                className="text-xs text-[#0F533A] border-[#0F533A]/30 hover:bg-[#0F533A]/10 font-medium"
-                                title="Editar dados e unidade do atendimento (Admin)"
+                                variant="outline"
+                                onClick={(e) => handleAssumirParecer(proc.id, e)}
+                                className="h-8 text-xs border-blue-300 text-blue-700 hover:bg-blue-50 flex items-center gap-1 font-semibold"
+                                title="Assumir este parecer e abrir a tela de análise técnica"
                               >
-                                <Pencil className="w-3 h-3 mr-1" />
-                                Editar
+                                <UserCheck className="h-3.5 w-3.5" />
+                                Assumir
+                              </Button>
+                            )}
+
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleOpenProcesso(proc.id)}
+                              className="h-8 text-xs text-slate-700 hover:bg-slate-100 flex items-center gap-1"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                              Abrir
+                            </Button>
+
+                            {isProcessoInFirstStatus(proc) && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteError(null);
+                                  setProcessoToDelete(proc);
+                                }}
+                                className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                title="Excluir Processo SEI (Permitido apenas no primeiro status)"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                             )}
                           </div>
                         </td>
                       </tr>
                     );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Modal de Detalhes da Consulta / SOAP */}
+      {/* Modal de Confirmação de Exclusão de Processo SEI */}
       <Dialog
-        open={Boolean(selectedConsultation)}
-        onOpenChange={(open) => !open && setSelectedConsultation(null)}
-        title="Detalhes do Atendimento Farmacêutico"
-        description={`Registro clínico de ${formatDate(selectedConsultation?.consultation_date || "")}`}
-        maxWidth="lg"
-      >
-        {selectedConsultation && (
-          <div className="space-y-4 text-xs">
-            {/* Informações Gerais */}
-            <div className="grid grid-cols-2 gap-3 p-3 bg-[#F9FAFB] rounded border border-[#E5E7EB]">
-              <div>
-                <span className="text-[#5C5E62] block">Paciente:</span>
-                <span className="font-semibold text-sm text-[#171A20]">
-                  {patients.find((p) => p.id === selectedConsultation.patient_id)?.full_name}
-                </span>
-                <span className="text-[#5C5E62] block font-mono">
-                  CPF: {patients.find((p) => p.id === selectedConsultation.patient_id)?.cpf}
-                </span>
-              </div>
-              <div>
-                <span className="text-[#5C5E62] block">Diagnóstico Principal:</span>
-                <span className="font-semibold text-[#171A20]">
-                  {cids.find((c) => c.id === selectedConsultation.primary_cid_id)?.code} —{" "}
-                  {cids.find((c) => c.id === selectedConsultation.primary_cid_id)?.description}
-                </span>
-              </div>
-            </div>
-
-            {/* Unidade do Atendimento */}
-            <div className="p-2.5 bg-white rounded border border-[#E5E7EB] flex items-center justify-between">
-              <div>
-                <span className="text-[#5C5E62] block text-[11px]">Unidade de Atendimento:</span>
-                <span className="font-medium text-[#171A20]">
-                  {units.find((u) => u.id === selectedConsultation.unit_id)?.name || "Unidade não localizada"}
-                </span>
-              </div>
-              {isAdmin && (
-                <Badge variant="outline" className="text-[10px] text-[#0F533A] border-[#0F533A]/30">
-                  Editável por Admin
-                </Badge>
-              )}
-            </div>
-
-            {/* Medicamentos */}
-            <div>
-              <span className="font-bold text-[#171A20] block mb-1">
-                Medicamentos Avaliados no Atendimento:
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {selectedConsultation.medications?.map((m) => (
-                  <Badge key={m.id} variant="neutral">
-                    {m.name} ({m.component})
-                  </Badge>
-                )) || <span className="text-[#9CA3AF]">Nenhum medicamento especificado</span>}
-              </div>
-            </div>
-
-            {/* PRFs */}
-            <div>
-              <span className="font-bold text-[#171A20] block mb-1">
-                Problemas Relacionados à Farmacoterapia (PRFs):
-              </span>
-              {selectedConsultation.prfs && selectedConsultation.prfs.length > 0 ? (
-                <div className="space-y-2">
-                  {selectedConsultation.prfs.map((prf, idx) => (
-                    <div key={idx} className="p-2 border border-[#E5E7EB] rounded bg-white">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-[#171A20]">
-                          PRF #{idx + 1}: {prf.category}
-                        </span>
-                        <Badge variant={prf.status === "Resolvido" ? "success" : "warning"}>
-                          {prf.status}
-                        </Badge>
-                      </div>
-                      {prf.description && (
-                        <p className="text-[#5C5E62] mt-1">{prf.description}</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <span className="text-[#9CA3AF]">Nenhum PRF registrado nesta consulta.</span>
-              )}
-            </div>
-
-            {/* Evolução Clínica SOAP */}
-            <div>
-              <span className="font-bold text-[#171A20] block mb-1">
-                Evolução Farmacêutica / Registro Clínico (SOAP):
-              </span>
-              <div className="p-3 bg-[#F4F4F6] rounded border border-[#E5E7EB] whitespace-pre-wrap font-sans text-[#171A20] leading-relaxed">
-                {selectedConsultation.clinical_notes || "Sem anotações clínicas registradas."}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-2 border-t border-[#E5E7EB]">
-              {isAdmin ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const c = selectedConsultation;
-                    setSelectedConsultation(null);
-                    handleOpenEditModal(c);
-                  }}
-                  className="text-xs text-[#0F533A] border-[#0F533A]/30 hover:bg-[#0F533A]/10 font-medium"
-                >
-                  <Pencil className="w-3 h-3 mr-1.5" />
-                  Editar Atendimento (Admin)
-                </Button>
-              ) : (
-                <div />
-              )}
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => setSelectedConsultation(null)}
-              >
-                Fechar
-              </Button>
-            </div>
-          </div>
-        )}
-      </Dialog>
-
-      {/* Modal de Edição de Atendimento Farmacêutico (Exclusivo Administrador) */}
-      <Dialog
-        open={isEditModalOpen}
+        open={Boolean(processoToDelete)}
         onOpenChange={(open) => {
-          if (!editLoading) {
-            setIsEditModalOpen(open);
-            if (!open) {
-              setEditingConsultation(null);
-              setEditError(null);
-              setEditSuccess(false);
-            }
+          if (!open) {
+            setProcessoToDelete(null);
+            setDeleteError(null);
           }
         }}
-        title="Editar Atendimento Farmacêutico"
-        description="Acesso restrito para Administradores: alteração da Unidade de Saúde (BRS), dados da consulta e evolução clínica."
-        maxWidth="xl"
+        title="Excluir Processo SEI"
+        description="Esta ação removerá o processo definitivamente do sistema."
+        maxWidth="sm"
       >
-        {editingConsultation && (
-          <form onSubmit={handleSaveEditConsultation} className="space-y-4 text-xs">
-            {/* Mensagem de Erro / Sucesso */}
-            {editError && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded flex items-start gap-2 text-red-700">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <div className="text-xs font-medium">{editError}</div>
-              </div>
-            )}
-
-            {editSuccess && (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded flex items-center gap-2 text-emerald-700">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <div className="text-xs font-medium">Atendimento atualizado com sucesso no Supabase!</div>
-              </div>
-            )}
-
-            {/* Informações Fixas do Paciente */}
-            <div className="p-3 bg-[#F9FAFB] rounded border border-[#E5E7EB] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div>
-                <span className="text-[11px] text-[#5C5E62] block">Paciente:</span>
-                <span className="font-semibold text-sm text-[#171A20]">
-                  {patients.find((p) => p.id === editingConsultation.patient_id)?.full_name || "Paciente"}
-                </span>
-              </div>
-              <div className="text-left sm:text-right">
-                <span className="text-[11px] text-[#5C5E62] block">CPF:</span>
-                <span className="font-mono text-xs font-medium text-[#171A20]">
-                  {patients.find((p) => p.id === editingConsultation.patient_id)?.cpf || "-"}
-                </span>
-              </div>
+        <div className="space-y-4 pt-1">
+          {deleteError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded text-xs text-rose-800 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+              <span>{deleteError}</span>
             </div>
+          )}
 
-            {/* DESTAQUE PRINCIPAL: Unidade de Atendimento */}
-            <div className="p-3.5 bg-emerald-50/70 border border-emerald-300 rounded-md">
-              <label className="block text-xs font-bold text-emerald-900 mb-1 flex items-center gap-1.5">
-                <Building2 className="w-4 h-4 text-emerald-700" />
-                Unidade de Atendimento (BRS) *
-              </label>
-              <p className="text-[11px] text-emerald-800 mb-2">
-                Como administrador, você pode transferir ou corrigir a unidade onde este atendimento foi realizado. Isso impactará os relatórios e indicadores da unidade.
-              </p>
-              <select
-                value={editUnitId}
-                onChange={(e) => setEditUnitId(e.target.value)}
-                required
-                className="w-full h-9 px-3 text-xs bg-white border border-emerald-400 rounded text-[#171A20] font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-none"
-              >
-                <option value="">Selecione uma unidade...</option>
-                {units.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} ({u.macroregion}) {!u.active ? "— [Inativa]" : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Grid: Data e Farmacêutico Responsável */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-[#171A20] mb-1">
-                  Data do Atendimento *
-                </label>
-                <Input
-                  type="date"
-                  value={editConsultationDate}
-                  onChange={(e) => setEditConsultationDate(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#171A20] mb-1">
-                  Farmacêutico Responsável *
-                </label>
-                <select
-                  value={editPharmacistId}
-                  onChange={(e) => setEditPharmacistId(e.target.value)}
-                  required
-                  className="w-full h-9 px-3 text-xs bg-[#F4F4F6] border border-[#D1D5DB] rounded text-[#171A20] focus:ring-1 focus:ring-[#171A20] focus:outline-none"
-                >
-                  <option value="">Selecione o farmacêutico...</option>
-                  {profiles.map((prof) => (
-                    <option key={prof.id} value={prof.id}>
-                      {prof.full_name} {prof.crf ? `(CRF: ${prof.crf})` : ""} {prof.role === "admin" ? "[Admin]" : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Diagnóstico Principal CID-10 */}
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1.5">
             <div>
-              <label className="block text-xs font-medium text-[#171A20] mb-1">
-                Diagnóstico Principal (CID-10) *
-              </label>
-              <select
-                value={editPrimaryCidId}
-                onChange={(e) => setEditPrimaryCidId(e.target.value)}
-                required
-                className="w-full h-9 px-3 text-xs bg-[#F4F4F6] border border-[#D1D5DB] rounded text-[#171A20] focus:ring-1 focus:ring-[#171A20] focus:outline-none"
-              >
-                <option value="">Selecione o CID-10...</option>
-                {cids
-                  .filter((c) => c.active !== false || c.id === editPrimaryCidId)
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.code} — {c.description}
-                    </option>
-                  ))}
-              </select>
+              <span className="text-slate-500">Nº do Processo SEI:</span>{" "}
+              <strong className="font-mono text-slate-900">{processoToDelete?.numero_sei}</strong>
             </div>
-
-            {/* Tipo de Atendimento & Flags */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-[#F9FAFB] rounded border border-[#E5E7EB]">
-              <div>
-                <label className="block text-xs font-medium text-[#171A20] mb-1">
-                  Tipo de Consulta
-                </label>
-                <select
-                  value={editIsNewPatient ? "new" : "return"}
-                  onChange={(e) => setEditIsNewPatient(e.target.value === "new")}
-                  className="w-full h-8 px-2 text-xs bg-white border border-[#D1D5DB] rounded text-[#171A20]"
-                >
-                  <option value="new">1ª Consulta (Paciente Novo)</option>
-                  <option value="return">Consulta de Retorno</option>
-                </select>
-              </div>
-
-              <div className="flex flex-col justify-center space-y-1.5 pt-1 sm:pt-0">
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-[#171A20]">
-                  <input
-                    type="checkbox"
-                    checked={editIsGuidanceOnly}
-                    onChange={(e) => setEditIsGuidanceOnly(e.target.checked)}
-                    className="rounded border-[#D1D5DB] text-[#0F533A] focus:ring-[#0F533A]"
-                  />
-                  Apenas Orientação
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-[#171A20]">
-                  <input
-                    type="checkbox"
-                    checked={editPharmaceuticalDischarge}
-                    onChange={(e) => setEditPharmaceuticalDischarge(e.target.checked)}
-                    className="rounded border-[#D1D5DB] text-[#0F533A] focus:ring-[#0F533A]"
-                  />
-                  Alta Farmacêutica
-                </label>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#171A20] mb-1">
-                  Intervenções Realizadas
-                </label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={editInterventionsCount}
-                  onChange={(e) => setEditInterventionsCount(parseInt(e.target.value, 10) || 0)}
-                  className="h-8"
-                />
-              </div>
-            </div>
-
-            {/* Anotações Clínicas / SOAP */}
             <div>
-              <label className="block text-xs font-medium text-[#171A20] mb-1">
-                Evolução Farmacêutica / Registro Clínico (SOAP)
-              </label>
-              <textarea
-                rows={5}
-                value={editClinicalNotes}
-                onChange={(e) => setEditClinicalNotes(e.target.value)}
-                placeholder="S (Subjetivo), O (Objetivo), A (Avaliação), P (Plano)..."
-                className="w-full p-2.5 text-xs bg-white border border-[#D1D5DB] rounded text-[#171A20] focus:ring-1 focus:ring-[#171A20] focus:outline-none font-sans"
-              />
+              <span className="text-slate-500">Paciente:</span>{" "}
+              <strong className="text-slate-900">{processoToDelete?.paciente?.full_name || "Não informado"}</strong>
             </div>
+            <div>
+              <span className="text-slate-500">Status Atual:</span>{" "}
+              <span className="font-semibold text-slate-700 capitalize">{processoToDelete?.status.replace("_", " ")}</span>
+            </div>
+          </div>
 
-            {/* Ações / Footer */}
-            <div className="flex justify-end gap-2 pt-3 border-t border-[#E5E7EB]">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setIsEditModalOpen(false);
-                  setEditingConsultation(null);
-                }}
-                disabled={editLoading}
-              >
-                Cancelar
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                size="sm"
-                disabled={editLoading}
-              >
-                {editLoading ? "Salvando..." : "Salvar Alterações"}
-              </Button>
-            </div>
-          </form>
-        )}
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Tem certeza de que deseja apagar este processo SEI? Como ele ainda está no primeiro status e não possui análise técnica concluída, a exclusão é permitida.
+          </p>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isDeleting}
+              onClick={() => {
+                setProcessoToDelete(null);
+                setDeleteError(null);
+              }}
+              className="text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isDeleting}
+              onClick={handleConfirmDelete}
+              className="bg-rose-600 hover:bg-rose-700 text-white text-xs flex items-center gap-1.5 shadow"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {isDeleting ? "Excluindo..." : "Sim, Excluir Processo"}
+            </Button>
+          </div>
+        </div>
       </Dialog>
     </div>
   );

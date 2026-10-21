@@ -3,17 +3,24 @@
 import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import {
-  FileSpreadsheet,
-  Printer,
   TrendingUp,
-  Users,
+  Clock,
   CheckCircle2,
   AlertTriangle,
-  Stethoscope,
+  FileText,
   Filter,
+  Printer,
+  Pill,
+  ShieldCheck,
+  Building2,
+  Users,
+  Activity,
+  ArrowUpRight,
+  Sparkles,
+  BarChart3,
+  PieChart as PieChartIcon,
 } from "lucide-react";
 import { useApp } from "@/lib/context/AppContext";
-import { calculateIndicators } from "@/lib/indicators";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,196 +36,313 @@ import {
   Cell,
   Legend,
 } from "recharts";
+import { formatDate } from "@/lib/utils";
+import { BAHIA_MACRORREGIOES } from "@/lib/territory-data";
 
-const MONTHS = [
-  { value: "0", label: "Ano Completo (Consolidado)" },
-  { value: "1", label: "01 - Janeiro" },
-  { value: "2", label: "02 - Fevereiro" },
-  { value: "3", label: "03 - Março" },
-  { value: "4", label: "04 - Abril" },
-  { value: "5", label: "05 - Maio" },
-  { value: "6", label: "06 - Junho" },
-  { value: "7", label: "07 - Julho" },
-  { value: "8", label: "08 - Agosto" },
-  { value: "9", label: "09 - Setembro" },
-  { value: "10", label: "10 - Outubro" },
-  { value: "11", label: "11 - Novembro" },
-  { value: "12", label: "12 - Dezembro" },
-];
+const STATUS_COLORS: Record<string, string> = {
+  "Aguardando Triagem": "#F59E0B",
+  "Em Triagem": "#F97316",
+  "Aguardando Parecer": "#3B82F6",
+  "Em Análise Técnica": "#6366F1",
+  "Em Exigência": "#A855F7",
+  "Deferido": "#10B981",
+  "Indeferido": "#EF4444",
+  "Deferido Parcial": "#14B8A6",
+};
 
 export default function IndicadoresPage() {
   const {
+    processos,
     units,
-    patients,
-    consultations,
-    monthlyData,
+    origens,
+    diresList,
+    nucleos,
+    profiles,
+    cids,
+    medications,
+    otherMedications,
     selectedUnitId,
     setSelectedUnitId,
   } = useApp();
 
+  const [activeTab, setActiveTab] = useState<"operacional" | "epidemiologico">("operacional");
   const [selectedMacroregion, setSelectedMacroregion] = useState<string>("all");
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
-  const [selectedMonth, setSelectedMonth] = useState<number>(10); // Outubro 2026 default
+  const [selectedPeriod, setSelectedPeriod] = useState<"30d" | "90d" | "2026">("2026");
 
-  // Lista de macrorregionais únicas
-  const macroregions = useMemo(() => {
-    return Array.from(new Set(units.map((u) => u.macroregion)));
-  }, [units]);
+  // Lista de macrorregionais oficiais da Bahia
+  const macroregions = BAHIA_MACRORREGIOES;
 
-  // Unidades filtradas pela macrorregional
-  const availableUnits = useMemo(() => {
-    if (selectedMacroregion === "all") return units;
-    return units.filter((u) => u.macroregion === selectedMacroregion);
-  }, [units, selectedMacroregion]);
-
-  // Cálculo dos 11 Indicadores com os filtros selecionados
-  const indicators = useMemo(() => {
-    return calculateIndicators(consultations, monthlyData, patients, {
-      unitId: selectedUnitId === "all" ? undefined : selectedUnitId,
-      macroregion: selectedMacroregion === "all" ? undefined : selectedMacroregion,
-      year: selectedYear,
-      month: selectedMonth === 0 ? undefined : selectedMonth,
+  // Filtragem dos processos com base nos controles do cabeçalho
+  const filteredProcessos = useMemo(() => {
+    return processos.filter((p) => {
+      if (selectedUnitId !== "all" && p.unidade_id !== selectedUnitId) {
+        return false;
+      }
+      if (selectedMacroregion !== "all") {
+        const u = units.find((unit) => unit.id === p.unidade_id);
+        if (u && u.macroregion !== selectedMacroregion) return false;
+      }
+      return true;
     });
-  }, [
-    consultations,
-    monthlyData,
-    patients,
-    selectedUnitId,
-    selectedMacroregion,
-    selectedYear,
-    selectedMonth,
-  ]);
+  }, [processos, selectedUnitId, selectedMacroregion]);
 
-  // Dados para gráficos Recharts
-  const prfStatusData = useMemo(() => {
-    const allPrfs = consultations.flatMap((c) => c.prfs || []);
-    const counts: Record<string, number> = {
-      Resolvido: 0,
-      "Em resolução": 0,
-      "Não resolvido": 0,
-      "Aguardando retorno": 0,
-    };
-    allPrfs.forEach((p) => {
-      if (counts[p.status] !== undefined) counts[p.status]++;
-    });
-    return [
-      { name: "Resolvido", value: counts["Resolvido"], color: "#10B981" },
-      { name: "Em resolução", value: counts["Em resolução"], color: "#F59E0B" },
-      { name: "Não resolvido", value: counts["Não resolvido"], color: "#E82127" },
-      { name: "Aguardando retorno", value: counts["Aguardando retorno"], color: "#6B7280" },
-    ];
-  }, [consultations]);
+  // =========================================================================
+  // MÉTRICAS OPERACIONAIS
+  // =========================================================================
+  const operationalMetrics = useMemo(() => {
+    const total = filteredProcessos.length;
+    const concluidos = filteredProcessos.filter((p) => p.status.startsWith("concluido_"));
+    const deferidos = filteredProcessos.filter((p) => p.status === "concluido_deferido" || p.status === "concluido_parcial");
+    const indeferidos = filteredProcessos.filter((p) => p.status === "concluido_indeferido");
+    const emExigencia = filteredProcessos.filter((p) => p.status === "em_exigencia");
 
-  const monthlyVolumeData = useMemo(() => {
-    const months = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-    return months.map((mName, idx) => {
-      const mNum = idx + 1;
-      const mConsults = consultations.filter((c) => {
-        const d = new Date(c.consultation_date);
-        return d.getUTCFullYear() === selectedYear && d.getUTCMonth() + 1 === mNum;
-      });
-      const first = mConsults.filter((c) => c.is_new_patient).length;
-      const follow = mConsults.filter((c) => !c.is_new_patient && !c.is_pharmaceutical_guidance_only).length;
-      const guidance = mConsults.filter((c) => c.is_pharmaceutical_guidance_only).length;
+    // Taxa de Deferimento
+    const deferralRate = concluidos.length > 0 ? Math.round((deferidos.length / concluidos.length) * 100) : 0;
 
-      return {
-        mes: mName,
-        "1ª Consulta": first,
-        Retorno: follow,
-        "Orientação Apenas": guidance,
-      };
-    });
-  }, [consultations, selectedYear]);
+    // SLAs e gargalos (> 5 dias sem conclusão)
+    const delayedProcesses = filteredProcessos.filter((p) => (p.days_in_current_status || 0) >= 5 && !p.status.startsWith("concluido_"));
+    const onTimeRate = total > 0 ? Math.round(((total - delayedProcesses.length) / total) * 100) : 100;
 
-  // Exportar dados para CSV
-  const handleExportCSV = () => {
-    const header = "Nº;Código;Denominação do Indicador;Origem do Dado;Método de Cálculo;Numerador;Denominador;Resultado Oficial;Unidade;Periodicidade\n";
-    const rows = indicators
-      .map(
-        (ind) =>
-          `"${ind.number}";"${ind.code}";"${ind.title}";"${getIndicatorSource(ind.code).label}";"${ind.method}";"${ind.numerator ?? "-"}";"${ind.denominator ?? "-"}";"${ind.result}";"${ind.unit}";"${ind.periodicity}"`
-      )
-      .join("\n");
-    const blob = new Blob(["\uFEFF" + header + rows], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", `indicadores_farmaceuticos_${selectedYear}_${selectedMonth || "ano"}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+    // Tempo médio estimado na etapa (dias)
+    const totalDays = filteredProcessos.reduce((acc, p) => acc + (p.days_in_current_status || 1), 0);
+    const avgDays = total > 0 ? (totalDays / total).toFixed(1) : "0";
 
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const currentUnitObj = units.find((u) => u.id === selectedUnitId);
-
-  // Mapeamento explícito da origem de cada indicador
-  function getIndicatorSource(code: string): { label: string; type: "clinico" | "mensal"; description: string } {
-    if (["IND-02", "IND-03", "IND-04", "IND-05", "IND-06", "IND-07", "IND-08"].includes(code)) {
-      return {
-        label: "Prontuário Clínico",
-        type: "clinico",
-        description: "Calculado dinamicamente das consultas e atendimentos registrados no sistema pelos farmacêuticos.",
-      };
-    }
     return {
-      label: "Fechamento AFSESAB",
-      type: "mensal",
-      description: "Alimentado mensalmente na tela Fechamento Mensal com os dados de dispensação e atividades coletivas.",
+      total,
+      concluidosCount: concluidos.length,
+      deferralRate,
+      delayedCount: delayedProcesses.length,
+      onTimeRate,
+      avgDays,
+      delayedProcesses,
     };
-  }
+  }, [filteredProcessos]);
+
+  // Gráfico Donut de Status
+  const statusDistributionData = useMemo(() => {
+    const counts: Record<string, number> = {
+      "Aguardando Triagem": 0,
+      "Aguardando Parecer": 0,
+      "Em Análise Técnica": 0,
+      "Em Exigência": 0,
+      "Deferido": 0,
+      "Indeferido": 0,
+    };
+
+    filteredProcessos.forEach((p) => {
+      switch (p.status) {
+        case "aguardando_triagem":
+        case "em_triagem":
+          counts["Aguardando Triagem"] += 1;
+          break;
+        case "aguardando_parecer":
+          counts["Aguardando Parecer"] += 1;
+          break;
+        case "em_analise_farmaceutica":
+          counts["Em Análise Técnica"] += 1;
+          break;
+        case "em_exigencia":
+          counts["Em Exigência"] += 1;
+          break;
+        case "concluido_deferido":
+        case "concluido_parcial":
+          counts["Deferido"] += 1;
+          break;
+        case "concluido_indeferido":
+          counts["Indeferido"] += 1;
+          break;
+      }
+    });
+
+    return Object.entries(counts)
+      .filter(([_, value]) => value > 0)
+      .map(([name, value]) => ({ name, value }));
+  }, [filteredProcessos]);
+
+  // Carga de Trabalho por Parecerista
+  const pharmacistWorkloadData = useMemo(() => {
+    const map: Record<string, { name: string; emAnalise: number; concluidos: number }> = {};
+
+    profiles
+      .filter((prof) => prof.role === "farmaceutico" || prof.role === "admin")
+      .forEach((prof) => {
+        map[prof.id] = { name: prof.full_name.split(" ")[0] + " " + (prof.full_name.split(" ")[1] || ""), emAnalise: 0, concluidos: 0 };
+      });
+
+    filteredProcessos.forEach((p) => {
+      if (p.assigned_pharmacist_id && map[p.assigned_pharmacist_id]) {
+        if (p.status.startsWith("concluido_")) {
+          map[p.assigned_pharmacist_id].concluidos += 1;
+        } else {
+          map[p.assigned_pharmacist_id].emAnalise += 1;
+        }
+      }
+    });
+
+    return Object.values(map);
+  }, [profiles, filteredProcessos]);
+
+  // Volume por Origem da Demanda
+  const originVolumeData = useMemo(() => {
+    const map: Record<string, number> = {};
+
+    origens.forEach((o) => {
+      map[o.sigla || o.name] = 0;
+    });
+
+    filteredProcessos.forEach((p) => {
+      const orig = origens.find((o) => o.id === p.origem_id);
+      const key = orig?.sigla || orig?.name || "Outros";
+      map[key] = (map[key] || 0) + 1;
+    });
+
+    return Object.entries(map).map(([name, total]) => ({ name, total }));
+  }, [origens, filteredProcessos]);
+
+  // =========================================================================
+  // MÉTRICAS FARMACÊUTICAS & EPIDEMIOLÓGICAS
+  // =========================================================================
+  const pharmaMetrics = useMemo(() => {
+    const allItems = filteredProcessos.flatMap((p) => p.items || []);
+    const totalItems = allItems.length;
+    const ceafItems = allItems.filter((it) => it.medication_type === "ceaf");
+    const otherItems = allItems.filter((it) => it.medication_type === "outro");
+
+    const ceafPercentage = totalItems > 0 ? Math.round((ceafItems.length / totalItems) * 100) : 0;
+    const otherPercentage = totalItems > 0 ? Math.round((otherItems.length / totalItems) * 100) : 0;
+
+    // Top 8 Medicamentos Mais Demandados
+    const medCountMap: Record<string, { name: string; type: "ceaf" | "outro" | "farmaco"; count: number }> = {};
+    allItems.forEach((it) => {
+      if (!medCountMap[it.medication_name]) {
+        medCountMap[it.medication_name] = {
+          name: it.medication_name,
+          type: it.medication_type || "farmaco",
+          count: 0,
+        };
+      }
+      medCountMap[it.medication_name].count += 1;
+    });
+
+    const topMedications = Object.values(medCountMap)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+
+    // Top 8 CIDs Mais Frequentes
+    const cidCountMap: Record<string, { code: string; desc: string; count: number }> = {};
+    allItems.forEach((it) => {
+      if (!cidCountMap[it.cid_code]) {
+        cidCountMap[it.cid_code] = {
+          code: it.cid_code,
+          desc: it.cid_description || "",
+          count: 0,
+        };
+      }
+      cidCountMap[it.cid_code].count += 1;
+    });
+
+    const topCids = Object.values(cidCountMap)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+
+    // Deferimento por DIRES
+    const diresMap: Record<string, { name: string; deferidos: number; indeferidos: number }> = {};
+    diresList.forEach((d) => {
+      diresMap[d.id] = { name: d.code, deferidos: 0, indeferidos: 0 };
+    });
+
+    filteredProcessos.forEach((p) => {
+      const mun = p.municipio;
+      if (mun?.dires_id && diresMap[mun.dires_id]) {
+        if (p.status === "concluido_deferido" || p.status === "concluido_parcial") {
+          diresMap[mun.dires_id].deferidos += 1;
+        } else if (p.status === "concluido_indeferido") {
+          diresMap[mun.dires_id].indeferidos += 1;
+        }
+      }
+    });
+
+    const diresPerformance = Object.values(diresMap).filter((d) => d.deferidos + d.indeferidos > 0);
+
+    return {
+      totalItems,
+      ceafCount: ceafItems.length,
+      ceafPercentage,
+      otherCount: otherItems.length,
+      otherPercentage,
+      topMedications,
+      topCids,
+      diresPerformance,
+    };
+  }, [filteredProcessos, diresList]);
 
   return (
-    <div className="space-y-6">
-      {/* Page Title & Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#E5E7EB]">
+    <div className="space-y-6 pb-12">
+      {/* Topo / Cabeçalho Executivo */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-[#171A20] tracking-tight">
-              Indicadores do Cuidado Farmacêutico (CEAF)
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              Painel de Inteligência & Indicadores CIMBAHIA
             </h1>
-            <Badge variant="outline" className="text-xs">
-              Metodologia Oficial CEAF
+            <Badge variant="outline" className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200">
+              BI Oficial SESAB
             </Badge>
           </div>
-          <p className="text-xs text-[#5C5E62] mt-1">
-            Painel auditável e transparente dos 11 indicadores oficiais da Assistência Farmacêutica Especializada.
+          <p className="text-sm text-slate-500 mt-1">
+            Monitoramento analítico de conformidade de SLA, produtividade de pareceres e perfil epidemiológico.
           </p>
         </div>
 
-        <div className="flex items-center gap-2 no-print">
-          <Button variant="outline" size="sm" onClick={handleExportCSV}>
-            <FileSpreadsheet className="w-3.5 h-3.5 mr-1 text-emerald-700" />
-            Exportar CSV
-          </Button>
-          <Button variant="secondary" size="sm" onClick={handlePrint}>
-            <Printer className="w-3.5 h-3.5 mr-1 text-[#171A20]" />
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => window.print()}
+            className="text-xs border-slate-300 text-slate-700 hover:bg-slate-50 flex items-center gap-1.5"
+          >
+            <Printer className="h-4 w-4" />
             Imprimir Relatório
           </Button>
         </div>
       </div>
 
-
-
-      {/* Filter Toolbar */}
-      <Card className="no-print border-[#E5E7EB] bg-white">
+      {/* Barra de Filtros Executivos */}
+      <Card>
         <CardContent className="p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {/* Macrorregional */}
-            <div>
-              <label className="block text-[11px] font-semibold uppercase text-[#5C5E62] mb-1">
-                Macrorregional de Saúde
-              </label>
+          <div className="flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
+            {/* Seletor de Abas Principais */}
+            <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 w-full md:w-auto">
+              <button
+                onClick={() => setActiveTab("operacional")}
+                className={`flex-1 md:flex-none px-4 py-2 rounded-md font-semibold transition-all flex items-center justify-center gap-2 ${
+                  activeTab === "operacional"
+                    ? "bg-white text-slate-900 shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Activity className="h-4 w-4 text-emerald-600" />
+                Dashboard Operacional & Eficiência
+              </button>
+              <button
+                onClick={() => setActiveTab("epidemiologico")}
+                className={`flex-1 md:flex-none px-4 py-2 rounded-md font-semibold transition-all flex items-center justify-center gap-2 ${
+                  activeTab === "epidemiologico"
+                    ? "bg-white text-slate-900 shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Pill className="h-4 w-4 text-indigo-600" />
+                Dashboard Farmacêutico & Epidemiológico
+              </button>
+            </div>
+
+            {/* Controles de Filtros Territoriais e Período */}
+            <div className="flex items-center gap-2 w-full md:w-auto justify-end flex-wrap">
               <select
                 value={selectedMacroregion}
-                onChange={(e) => {
-                  setSelectedMacroregion(e.target.value);
-                  setSelectedUnitId("all");
-                }}
-                className="w-full h-9 px-3 text-xs bg-[#F4F4F6] border border-[#D1D5DB] rounded text-[#171A20] focus:ring-1 focus:ring-[#171A20] focus:outline-none"
+                onChange={(e) => setSelectedMacroregion(e.target.value)}
+                className="h-9 text-xs rounded-md border border-slate-200 bg-white px-3 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
                 <option value="all">Todas as Macrorregionais</option>
                 {macroregions.map((macro) => (
@@ -227,326 +351,375 @@ export default function IndicadoresPage() {
                   </option>
                 ))}
               </select>
-            </div>
 
-            {/* Unidade */}
-            <div>
-              <label className="block text-[11px] font-semibold uppercase text-[#5C5E62] mb-1">
-                Unidade / BRS
-              </label>
               <select
                 value={selectedUnitId}
                 onChange={(e) => setSelectedUnitId(e.target.value)}
-                className="w-full h-9 px-3 text-xs bg-[#F4F4F6] border border-[#D1D5DB] rounded text-[#171A20] focus:ring-1 focus:ring-[#171A20] focus:outline-none"
+                className="h-9 text-xs rounded-md border border-slate-200 bg-white px-3 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
-                <option value="all">Todas as Unidades da Região</option>
-                {availableUnits.map((u) => (
+                <option value="all">Todas as Unidades / Bases</option>
+                {units.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.name} ({u.municipality})
+                    {u.name}
                   </option>
                 ))}
               </select>
-            </div>
 
-            {/* Ano */}
-            <div>
-              <label className="block text-[11px] font-semibold uppercase text-[#5C5E62] mb-1">
-                Ano de Competência
-              </label>
               <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(Number(e.target.value))}
-                className="w-full h-9 px-3 text-xs bg-[#F4F4F6] border border-[#D1D5DB] rounded text-[#171A20] focus:ring-1 focus:ring-[#171A20] focus:outline-none"
+                value={selectedPeriod}
+                onChange={(e) => setSelectedPeriod(e.target.value as "30d" | "90d" | "2026")}
+                className="h-9 text-xs rounded-md border border-slate-200 bg-white px-3 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
               >
-                <option value={2026}>2026</option>
-                <option value={2025}>2025</option>
-                <option value={2024}>2024</option>
-              </select>
-            </div>
-
-            {/* Mês */}
-            <div>
-              <label className="block text-[11px] font-semibold uppercase text-[#5C5E62] mb-1">
-                Mês
-              </label>
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                className="w-full h-9 px-3 text-xs bg-[#F4F4F6] border border-[#D1D5DB] rounded text-[#171A20] focus:ring-1 focus:ring-[#171A20] focus:outline-none"
-              >
-                {MONTHS.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
+                <option value="30d">Últimos 30 Dias</option>
+                <option value="90d">Últimos 90 Dias</option>
+                <option value="2026">Ano de 2026 (Consolidado)</option>
               </select>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* KPI Headline Cards (Tesla High-Contrast Engineering Style) */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {/* Card 1: Pacientes em Acompanhamento */}
-        <div className="bg-[#171A20] text-white p-4 rounded shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium tracking-wider text-[#A0A2A8] uppercase">
-              Em Acompanhamento
-            </span>
-            <span className="text-[10px] font-semibold bg-[#282C34] text-[#E82127] px-1.5 py-0.5 rounded">
-              IND-01
-            </span>
+      {/* ========================================================================= */}
+      {/* ABA 1: DASHBOARD OPERACIONAL & EFICIÊNCIA */}
+      {/* ========================================================================= */}
+      {activeTab === "operacional" && (
+        <div className="space-y-6">
+          {/* Cards KPIs Operacionais */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <Card className="border-l-4 border-l-slate-700">
+              <CardContent className="p-4">
+                <span className="text-xs font-medium text-slate-500">Volume Total de Processos</span>
+                <div className="text-2xl font-bold text-slate-900 mt-1">{operationalMetrics.total}</div>
+                <span className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
+                  <FileText className="h-3 w-3 text-slate-400" />
+                  {operationalMetrics.concluidosCount} finalizados
+                </span>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-blue-600">
+              <CardContent className="p-4">
+                <span className="text-xs font-medium text-blue-700">Tempo Médio na Etapa</span>
+                <div className="text-2xl font-bold text-blue-900 mt-1">{operationalMetrics.avgDays} <span className="text-sm font-normal">dias</span></div>
+                <span className="text-[11px] text-blue-600 flex items-center gap-1 mt-0.5">
+                  <Clock className="h-3 w-3" />
+                  Meta SESAB: ≤ 5.0 dias
+                </span>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-emerald-600">
+              <CardContent className="p-4">
+                <span className="text-xs font-medium text-emerald-700">Taxa de SLA Cumprido</span>
+                <div className="text-2xl font-bold text-emerald-900 mt-1">{operationalMetrics.onTimeRate}%</div>
+                <span className="text-[11px] text-emerald-600 flex items-center gap-1 mt-0.5">
+                  <CheckCircle2 className="h-3 w-3" />
+                  Conformidade de prazo
+                </span>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-amber-600">
+              <CardContent className="p-4">
+                <span className="text-xs font-medium text-amber-700">Gargalos Críticos (&gt; 5d)</span>
+                <div className="text-2xl font-bold text-amber-800 mt-1">{operationalMetrics.delayedCount}</div>
+                <span className="text-[11px] text-amber-600 flex items-center gap-1 mt-0.5">
+                  <AlertTriangle className="h-3 w-3" />
+                  Requerem intervenção
+                </span>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-indigo-600">
+              <CardContent className="p-4">
+                <span className="text-xs font-medium text-indigo-700">Taxa de Deferimento</span>
+                <div className="text-2xl font-bold text-indigo-900 mt-1">{operationalMetrics.deferralRate}%</div>
+                <span className="text-[11px] text-indigo-600 flex items-center gap-1 mt-0.5">
+                  <ShieldCheck className="h-3 w-3" />
+                  Pareceres favoráveis
+                </span>
+              </CardContent>
+            </Card>
           </div>
-          <div className="mt-2 text-2xl sm:text-3xl font-bold tracking-tight">
-            {indicators[0]?.result}
+
+          {/* Gráficos Operacionais */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Distribuição por Status */}
+            <Card>
+              <CardHeader className="p-4 border-b border-slate-100">
+                <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                  <PieChartIcon className="h-4 w-4 text-emerald-600" />
+                  Distribuição de Processos por Status Operacional
+                </CardTitle>
+                <CardDescription className="text-xs text-slate-500">
+                  Visão em tempo real da carga nas etapas de triagem, fila de parecer e conclusão.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-4">
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={statusDistributionData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={55}
+                        outerRadius={85}
+                        paddingAngle={3}
+                        label={({ name, percent }: { name?: string; percent?: number }) => `${name || ""}: ${((percent || 0) * 100).toFixed(0)}%`}
+                      >
+                        {statusDistributionData.map((entry) => (
+                          <Cell
+                            key={entry.name}
+                            fill={STATUS_COLORS[entry.name] || "#94A3B8"}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Carga por Parecerista */}
+            <Card>
+              <CardHeader className="p-4 border-b border-slate-100">
+                <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                  <Users className="h-4 w-4 text-indigo-600" />
+                  Carga de Trabalho & Produtividade por Parecerista
+                </CardTitle>
+                <CardDescription className="text-xs text-slate-500">
+                  Comparativo entre processos em análise técnica e pareceres já finalizados.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-4">
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={pharmacistWorkloadData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
+                      <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="emAnalise" name="Em Análise" fill="#6366F1" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="concluidos" name="Concluídos" fill="#10B981" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
           </div>
-          <p className="text-[11px] text-[#A0A2A8] mt-1 truncate">
-            {currentUnitObj ? currentUnitObj.name : "Total Macrorregional"}
-          </p>
+
+          {/* Volume por Origem e Tabela de Gargalos */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <Card className="lg:col-span-1">
+              <CardHeader className="p-4 border-b border-slate-100">
+                <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-slate-600" />
+                  Demandas por Origem
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4">
+                <div className="h-56 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={originVolumeData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                      <XAxis type="number" tick={{ fontSize: 10 }} />
+                      <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={75} />
+                      <Tooltip />
+                      <Bar dataKey="total" fill="#0EA5E9" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="lg:col-span-2">
+              <CardHeader className="p-4 border-b border-slate-100 flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    Processos Críticos / Gargalos (&gt; 5 dias na etapa)
+                  </CardTitle>
+                  <CardDescription className="text-xs text-slate-500">
+                    Acompanhamento de processos com risco iminente de extravasamento do prazo legal da SESAB.
+                  </CardDescription>
+                </div>
+                <Link href="/atendimentos">
+                  <Button variant="ghost" size="sm" className="text-xs text-emerald-700">
+                    Ver todos na Fila ➔
+                  </Button>
+                </Link>
+              </CardHeader>
+              <CardContent className="p-0">
+                {operationalMetrics.delayedProcesses.length === 0 ? (
+                  <div className="p-8 text-center text-slate-400 text-xs">
+                    Nenhum gargalo operacional detectado. Todos os processos estão dentro do SLA de 5 dias.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 border-b text-slate-600 uppercase font-semibold">
+                        <tr>
+                          <th className="py-2.5 px-4">Processo SEI</th>
+                          <th className="py-2.5 px-4">Paciente</th>
+                          <th className="py-2.5 px-4">Status Atual</th>
+                          <th className="py-2.5 px-4 text-rose-600">Dias Parado</th>
+                          <th className="py-2.5 px-4 text-right">Ação</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {operationalMetrics.delayedProcesses.slice(0, 4).map((proc) => (
+                          <tr key={proc.id} className="hover:bg-slate-50">
+                            <td className="py-2.5 px-4 font-mono font-medium text-slate-900">{proc.numero_sei}</td>
+                            <td className="py-2.5 px-4">{proc.paciente?.full_name}</td>
+                            <td className="py-2.5 px-4">
+                              <Badge variant="outline" className="text-[10px]">
+                                {proc.status}
+                              </Badge>
+                            </td>
+                            <td className="py-2.5 px-4 font-bold text-rose-600">{proc.days_in_current_status} dias</td>
+                            <td className="py-2.5 px-4 text-right">
+                              <Link href="/atendimentos">
+                                <Button size="sm" variant="outline" className="h-7 text-xs border-amber-300 text-amber-800 hover:bg-amber-50">
+                                  Priorizar
+                                </Button>
+                              </Link>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
+      )}
 
-        {/* Card 2: Consultas Clínicas */}
-        <div className="bg-white border border-[#E5E7EB] p-4 rounded shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium tracking-wider text-[#5C5E62] uppercase">
-              Pacientes Atendidos
-            </span>
-            <span className="text-[10px] font-semibold bg-[#F4F4F6] text-[#171A20] px-1.5 py-0.5 rounded">
-              IND-02
-            </span>
-          </div>
-          <div className="mt-2 text-2xl sm:text-3xl font-bold text-[#171A20] tracking-tight">
-            {indicators[1]?.result}
-          </div>
-          <p className="text-[11px] text-[#5C5E62] mt-1">
-            Consultas no mês de competência
-          </p>
-        </div>
+      {/* ========================================================================= */}
+      {/* ABA 2: DASHBOARD FARMACÊUTICO & EPIDEMIOLÓGICO */}
+      {/* ========================================================================= */}
+      {activeTab === "epidemiologico" && (
+        <div className="space-y-6">
+          {/* Cards Farmacêuticos */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card className="border-l-4 border-l-slate-700">
+              <CardContent className="p-4">
+                <span className="text-xs font-medium text-slate-500">Total de Medicamentos Analisados</span>
+                <div className="text-2xl font-bold text-slate-900 mt-1">{pharmaMetrics.totalItems}</div>
+                <span className="text-[11px] text-slate-500">Prescrições reguladas</span>
+              </CardContent>
+            </Card>
 
-        {/* Card 3: Taxa de Resolução de PRFs */}
-        <div className="bg-white border border-[#E5E7EB] p-4 rounded shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium tracking-wider text-[#5C5E62] uppercase">
-              Resolução de PRFs
-            </span>
-            <span className="text-[10px] font-semibold bg-[#F4F4F6] text-[#171A20] px-1.5 py-0.5 rounded">
-              IND-06
-            </span>
-          </div>
-          <div className="mt-2 text-2xl sm:text-3xl font-bold text-[#10B981] tracking-tight flex items-baseline gap-1">
-            {indicators[5]?.result}%
-          </div>
-          <p className="text-[11px] text-[#5C5E62] mt-1">
-            {indicators[5]?.numerator} de {indicators[5]?.denominator} resolvidos
-          </p>
-        </div>
+            <Card className="border-l-4 border-l-blue-600">
+              <CardContent className="p-4">
+                <span className="text-xs font-medium text-blue-700">Medicamentos do CEAF</span>
+                <div className="text-2xl font-bold text-blue-900 mt-1">{pharmaMetrics.ceafPercentage}%</div>
+                <span className="text-[11px] text-blue-600">{pharmaMetrics.ceafCount} itens padronizados (RENAME)</span>
+              </CardContent>
+            </Card>
 
-        {/* Card 4: Cobertura 1ª Dispensação */}
-        <div className="bg-white border border-[#E5E7EB] p-4 rounded shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium tracking-wider text-[#5C5E62] uppercase">
-              Cobertura 1ª Dispensação
-            </span>
-            <span className="text-[10px] font-semibold bg-[#F4F4F6] text-[#171A20] px-1.5 py-0.5 rounded">
-              IND-11
-            </span>
+            <Card className="border-l-4 border-l-purple-600">
+              <CardContent className="p-4">
+                <span className="text-xs font-medium text-purple-700">Não Padronizados / Judiciais</span>
+                <div className="text-2xl font-bold text-purple-900 mt-1">{pharmaMetrics.otherPercentage}%</div>
+                <span className="text-[11px] text-purple-600">{pharmaMetrics.otherCount} itens em avaliação especial</span>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-emerald-600">
+              <CardContent className="p-4">
+                <span className="text-xs font-medium text-emerald-700">Diagnósticos (CIDs) Cobertos</span>
+                <div className="text-2xl font-bold text-emerald-900 mt-1">{pharmaMetrics.topCids.length}</div>
+                <span className="text-[11px] text-emerald-600">Patologias distintas</span>
+              </CardContent>
+            </Card>
           </div>
-          <div className="mt-2 text-2xl sm:text-3xl font-bold text-[#171A20] tracking-tight">
-            {indicators[10]?.result}%
+
+          {/* Gráficos Epidemiológicos */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Top Medicamentos */}
+            <Card>
+              <CardHeader className="p-4 border-b border-slate-100">
+                <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                  <Pill className="h-4 w-4 text-emerald-600" />
+                  Top Medicamentos Mais Solicitados
+                </CardTitle>
+                <CardDescription className="text-xs text-slate-500">
+                  Identificação das principais moléculas demandadas com distinção entre CEAF e Não Padronizados.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-4">
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={pharmaMetrics.topMedications} layout="vertical" margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+                      <XAxis type="number" tick={{ fontSize: 10 }} />
+                      <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={120} />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="#3B82F6" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Top CIDs */}
+            <Card>
+              <CardHeader className="p-4 border-b border-slate-100">
+                <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-indigo-600" />
+                  Patologias / CIDs-10 Mais Frequentes
+                </CardTitle>
+                <CardDescription className="text-xs text-slate-500">
+                  Doenças de maior impacto regulatório na Assistência Farmacêutica estadual.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-4">
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={pharmaMetrics.topCids} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
+                      <XAxis dataKey="code" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
           </div>
-          <p className="text-[11px] text-[#5C5E62] mt-1">
-            {indicators[10]?.numerator} de {indicators[10]?.denominator} novos processos
-          </p>
-        </div>
-      </div>
 
-      {/* Visual Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 no-print">
-        {/* Monthly Volume Bar Chart */}
-        <Card className="lg:col-span-2 border-[#E5E7EB]">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold flex items-center justify-between">
-              <span>Volume Mensal de Consultas Farmacêuticas ({selectedYear})</span>
-              <span className="text-xs font-normal text-[#5C5E62]">1ª Consulta vs Retorno</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyVolumeData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <XAxis dataKey="mes" tick={{ fontSize: 11, fill: "#5C5E62" }} />
-                  <YAxis tick={{ fontSize: 11, fill: "#5C5E62" }} allowDecimals={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#171A20",
-                      borderColor: "#282C34",
-                      color: "#fff",
-                      fontSize: "12px",
-                      borderRadius: "4px",
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "8px" }} />
-                  <Bar dataKey="1ª Consulta" fill="#E82127" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="Retorno" fill="#171A20" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="Orientação Apenas" fill="#9CA3AF" radius={[2, 2, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* PRFs Status Pie Chart */}
-        <Card className="border-[#E5E7EB]">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">
-              Status dos PRFs Detectados
-            </CardTitle>
-            <CardDescription>
-              Resolução de problemas farmacoterapêuticos
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-64 w-full flex flex-col items-center justify-center">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={prfStatusData}
-                    cx="50%"
-                    cy="45%"
-                    innerRadius={50}
-                    outerRadius={80}
-                    paddingAngle={3}
-                    dataKey="value"
-                  >
-                    {prfStatusData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#171A20",
-                      color: "#fff",
-                      fontSize: "12px",
-                      borderRadius: "4px",
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: "11px" }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* TABELA OFICIAL DOS 11 INDICADORES DA ASSISTÊNCIA FARMACÊUTICA */}
-      <Card className="border-[#E5E7EB] shadow-xs">
-        <CardHeader className="border-b border-[#E5E7EB] bg-[#FAFAFB]">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <CardTitle className="text-base font-bold text-[#171A20]">
-                Tabela Oficial dos 11 Indicadores do Cuidado Farmacêutico (CEAF)
+          {/* Desempenho por DIRES / Macrorregião */}
+          <Card>
+            <CardHeader className="p-4 border-b border-slate-100">
+              <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-slate-700" />
+                Desfecho dos Pareceres por Diretoria Regional de Saúde (DIRES)
               </CardTitle>
-              <CardDescription>
-                Competência: {selectedMonth ? MONTHS.find((m) => m.value === String(selectedMonth))?.label : "Ano Consolidado"} / {selectedYear}
-                {" — "} Unidade: {currentUnitObj ? currentUnitObj.name : "Consolidado Macrorregional"}
+              <CardDescription className="text-xs text-slate-500">
+                Taxa comparativa de deferimentos e indeferimentos técnicos por polo regional da Bahia.
               </CardDescription>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-medium text-[#5C5E62]">
-                Total de Linhas: 11
-              </span>
-            </div>
-          </div>
-        </CardHeader>
-
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-[#171A20] text-white border-b border-[#282C34]">
-                  <th className="py-2.5 px-3 font-semibold w-12 text-center">Nº</th>
-                  <th className="py-2.5 px-3 font-semibold w-20">Código</th>
-                  <th className="py-2.5 px-4 font-semibold">Denominação do Indicador</th>
-                  <th className="py-2.5 px-3 font-semibold text-center w-36">Origem do Dado</th>
-                  <th className="py-2.5 px-3 font-semibold text-center w-24">
-                    Numerador
-                  </th>
-                  <th className="py-2.5 px-3 font-semibold text-center w-24">
-                    Denominador
-                  </th>
-                  <th className="py-2.5 px-4 font-bold text-right w-28 bg-[#282C34] text-white">
-                    Resultado
-                  </th>
-                  <th className="py-2.5 px-3 font-semibold text-center w-20 hidden sm:table-cell">
-                    Unidade
-                  </th>
-                  <th className="py-2.5 px-3 font-semibold text-center w-24 hidden lg:table-cell">
-                    Periodicidade
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E5E7EB] bg-white">
-                {indicators.map((ind) => {
-                  const source = getIndicatorSource(ind.code);
-                  return (
-                    <tr
-                      key={ind.number}
-                      className="hover:bg-[#F9FAFB] transition-colors"
-                    >
-                      <td className="py-3 px-3 text-center font-bold text-[#5C5E62]">
-                        {String(ind.number).padStart(2, "0")}
-                      </td>
-                      <td className="py-3 px-3 font-mono font-semibold text-[#171A20]">
-                        <span className="bg-[#F4F4F6] px-1.5 py-0.5 rounded text-[11px]">
-                          {ind.code}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="font-semibold text-[#171A20]">
-                          {ind.title}
-                        </div>
-                        <div className="text-[11px] text-[#5C5E62] mt-0.5">
-                          {ind.description}
-                        </div>
-                      </td>
-                      <td className="py-3 px-3 text-center">
-                        <span
-                          className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded border ${
-                            source.type === "clinico"
-                              ? "bg-blue-50 text-blue-800 border-blue-200"
-                              : "bg-purple-50 text-purple-800 border-purple-200"
-                          }`}
-                          title={source.description}
-                        >
-                          {source.label}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 text-center text-[#171A20] font-medium font-mono">
-                        {ind.numerator !== null ? ind.numerator : "-"}
-                      </td>
-                      <td className="py-3 px-3 text-center text-[#171A20] font-medium font-mono">
-                        {ind.denominator !== null ? ind.denominator : "-"}
-                      </td>
-                      <td className="py-3 px-4 text-right font-bold text-sm bg-[#FAFAFB] text-[#171A20]">
-                        <span className="px-2 py-0.5 rounded bg-white border border-[#E5E7EB]">
-                          {ind.result}
-                          {ind.unit === "%" ? "%" : ""}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 text-center text-[11px] text-[#5C5E62] hidden sm:table-cell">
-                        {ind.unit}
-                      </td>
-                      <td className="py-3 px-3 text-center text-[11px] text-[#5C5E62] hidden lg:table-cell">
-                        {ind.periodicity}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+            </CardHeader>
+            <CardContent className="p-4">
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={pharmaMetrics.diresPerformance} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="deferidos" name="Deferidos" fill="#10B981" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="indeferidos" name="Indeferidos" fill="#EF4444" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

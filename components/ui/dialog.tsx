@@ -10,7 +10,7 @@ interface DialogProps {
   title: string;
   description?: string;
   children: React.ReactNode;
-  maxWidth?: "sm" | "md" | "lg" | "xl";
+  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl";
 }
 
 export function Dialog({
@@ -40,6 +40,8 @@ export function Dialog({
             "max-w-md": maxWidth === "md",
             "max-w-xl": maxWidth === "lg",
             "max-w-3xl": maxWidth === "xl",
+            "max-w-4xl": maxWidth === "2xl",
+            "max-w-5xl": maxWidth === "3xl",
           }
         )}
       >

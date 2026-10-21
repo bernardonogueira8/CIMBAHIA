@@ -1,24 +1,31 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Building2,
   PlusCircle,
   Users,
-  Shield,
   MapPin,
-  CheckCircle,
-  UserCheck,
-  UserPlus,
-  UserX,
-  ShieldAlert,
-  AlertCircle,
-  CheckCircle2,
-  KeyRound,
   Mail,
-  User,
+  Phone,
   Pencil,
-  Lock,
+  CheckCircle2,
+  AlertCircle,
+  ShieldCheck,
+  Stethoscope,
+  Trash2,
+  Plus,
+  Compass,
+  Layers,
+  Search,
+  Landmark,
+  FileText,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  ExternalLink,
+  UserCheck,
 } from "lucide-react";
 import { useApp } from "@/lib/context/AppContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -26,372 +33,921 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
-import { Role, Unit, Profile } from "@/lib/types";
+import {
+  Unit,
+  UnidadeFarmaceutico,
+  Municipio,
+  Origem,
+  Dires,
+  Nucleo,
+} from "@/lib/types";
+import { BAHIA_MACRORREGIOES, BAHIA_BRS } from "@/lib/territory-data";
 
-export default function UnidadesPage() {
+export default function UnidadesEstruturaPage() {
   const {
     units,
-    profiles,
+    municipios,
+    origens,
+    diresList,
+    nucleos,
     currentUser,
     addUnit,
-    updateUnit,
-    registerUser,
-    updateUser,
-    toggleUserActive,
+    updateUnitFull,
+    addMunicipio,
+    updateMunicipio,
+    deleteMunicipio,
+    addOrigem,
+    updateOrigem,
+    deleteOrigem,
+    addNucleo,
+    updateNucleo,
+    deleteNucleo,
+    addDires,
+    updateDires,
+    deleteDires,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<"units" | "users">("units");
+  const isGestor = currentUser?.role === "admin" || currentUser?.role === "gestor";
 
-  // Modais de Cadastro
+  // Aba ativa principal
+  const [activeMainTab, setActiveMainTab] = useState<"bases" | "municipios" | "nucleos" | "origens">("bases");
+
+  // =========================================================================
+  // 1. ESTADOS: BASES REGIONAIS & UNIDADES
+  // =========================================================================
+  const [unitSearch, setUnitSearch] = useState("");
+  const [unitMacroFilter, setUnitMacroFilter] = useState("all");
+
+  // Modal Nova/Editar Unidade
   const [isUnitModalOpen, setIsUnitModalOpen] = useState(false);
-  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
-
-  // Modais de Edição
-  const [isEditUnitModalOpen, setIsEditUnitModalOpen] = useState(false);
-  const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
-
-  // Estados formulário Nova Unidade
+  const [isEditingUnit, setIsEditingUnit] = useState(false);
+  const [selectedUnitId, setSelectedUnitId] = useState("");
   const [unitName, setUnitName] = useState("");
-  const [macroregion, setMacroregion] = useState("Macrorregional Norte");
-  const [municipality, setMunicipality] = useState("");
-  const [cnes, setCnes] = useState("");
+  const [unitMacroregion, setUnitMacroregion] = useState("Macrorregional Centro-Leste");
+  const [unitMunicipality, setUnitMunicipality] = useState("");
+  const [unitCnes, setUnitCnes] = useState("");
+  const [unitEmail, setUnitEmail] = useState("");
+  const [unitPhone, setUnitPhone] = useState("");
+  const [unitAddress, setUnitAddress] = useState("");
+  const [unitActive, setUnitActive] = useState(true);
+  const [unitLoading, setUnitLoading] = useState(false);
+  const [unitError, setUnitError] = useState("");
 
-  // Estados formulário Editar Unidade
-  const [editingUnitId, setEditingUnitId] = useState("");
-  const [editUnitName, setEditUnitName] = useState("");
-  const [editMacroregion, setEditMacroregion] = useState("Macrorregional Norte");
-  const [editMunicipality, setEditMunicipality] = useState("");
-  const [editCnes, setEditCnes] = useState("");
-  const [editUnitActive, setEditUnitActive] = useState(true);
-  const [editUnitLoading, setEditUnitLoading] = useState(false);
-  const [editUnitError, setEditUnitError] = useState("");
-  const [editUnitSuccess, setEditUnitSuccess] = useState("");
+  // Modal Gerenciar Farmacêuticos Responsáveis da Unidade
+  const [isPharmacistModalOpen, setIsPharmacistModalOpen] = useState(false);
+  const [activeUnitForPharm, setActiveUnitForPharm] = useState<Unit | null>(null);
+  const [newPharmName, setNewPharmName] = useState("");
+  const [newPharmCrf, setNewPharmCrf] = useState("");
+  const [newPharmPhone, setNewPharmPhone] = useState("");
+  const [newPharmEmail, setNewPharmEmail] = useState("");
+  const [newPharmIsRt, setNewPharmIsRt] = useState(false);
 
-  // Estados formulário Novo Usuário (Restrito à Administração)
-  const [userName, setUserName] = useState("");
-  const [userEmail, setUserEmail] = useState("");
-  const [userPassword, setUserPassword] = useState("PharmaCare@2026");
-  const [userCrf, setUserCrf] = useState("");
-  const [userUnitId, setUserUnitId] = useState<string>(
-    units[0]?.id || "11111111-1111-1111-1111-111111111111"
-  );
-  const [userRole, setUserRole] = useState<Role>("pharmacist");
-  const [userLoading, setUserLoading] = useState(false);
-  const [userError, setUserError] = useState("");
-  const [userSuccess, setUserSuccess] = useState("");
+  // Modal Gerenciar Municípios Abrangidos da Unidade
+  const [isMunicipalitiesModalOpen, setIsMunicipalitiesModalOpen] = useState(false);
+  const [activeUnitForMuns, setActiveUnitForMuns] = useState<Unit | null>(null);
+  const [selectedMunIdToAdd, setSelectedMunIdToAdd] = useState("");
 
-  // Estados formulário Editar Usuário
-  const [editingUserId, setEditingUserId] = useState("");
-  const [editUserName, setEditUserName] = useState("");
-  const [editUserEmail, setEditUserEmail] = useState("");
-  const [editUserPassword, setEditUserPassword] = useState("");
-  const [editUserCrf, setEditUserCrf] = useState("");
-  const [editUserUnitId, setEditUserUnitId] = useState<string>("general");
-  const [editUserRole, setEditUserRole] = useState<Role>("pharmacist");
-  const [editUserActive, setEditUserActive] = useState(true);
-  const [editUserLoading, setEditUserLoading] = useState(false);
-  const [editUserError, setEditUserError] = useState("");
-  const [editUserSuccess, setEditUserSuccess] = useState("");
-  const [userActionLoadingId, setUserActionLoadingId] = useState<string | null>(null);
+  // =========================================================================
+  // 2. ESTADOS: MUNICÍPIOS (417)
+  // =========================================================================
+  const [munSearch, setMunSearch] = useState("");
+  const [munMacroFilter, setMunMacroFilter] = useState("all");
+  const [munBrsFilter, setMunBrsFilter] = useState("all");
+  const [munPage, setMunPage] = useState(1);
+  const [munPageSize, setMunPageSize] = useState(25);
 
-  const isAdmin = currentUser?.role === "admin";
+  const [isMunEditModalOpen, setIsMunEditModalOpen] = useState(false);
+  const [editingMun, setEditingMun] = useState<Municipio | null>(null);
+  const [editMunName, setEditMunName] = useState("");
+  const [editMunIbge, setEditMunIbge] = useState("");
+  const [editMunBrsName, setEditMunBrsName] = useState("");
+
+  // =========================================================================
+  // 3. ESTADOS: ORIGENS DE DEMANDA
+  // =========================================================================
+  const [isOrigemModalOpen, setIsOrigemModalOpen] = useState(false);
+  const [editingOrigem, setEditingOrigem] = useState<Origem | null>(null);
+  const [origemName, setOrigemName] = useState("");
+  const [origemSigla, setOrigemSigla] = useState("");
+  const [origemDesc, setOrigemDesc] = useState("");
+  const [origemActive, setOrigemActive] = useState(true);
+
+  // =========================================================================
+  // 4. ESTADOS: NÚCLEOS & DIRES
+  // =========================================================================
+  const [isNucleoModalOpen, setIsNucleoModalOpen] = useState(false);
+  const [editingNucleo, setEditingNucleo] = useState<Nucleo | null>(null);
+  const [nucleoCode, setNucleoCode] = useState("");
+  const [nucleoName, setNucleoName] = useState("");
+  const [nucleoMacro, setNucleoMacro] = useState("Macrorregional Leste");
+
+  // =========================================================================
+  // CÁLCULOS E FILTRAGENS
+  // =========================================================================
+
+  // Mapeamento automático de municípios que pertencem a cada base / unidade
+  const unitMunicipalitiesMap = useMemo(() => {
+    const map: Record<string, Municipio[]> = {};
+    units.forEach((u) => {
+      // 1. Municípios explicitamente vinculados em served_municipalities
+      const directServed = u.served_municipalities || [];
+
+      // 2. Municípios cujo brs_name corresponde à unidade
+      const cleanUnitName = u.name
+        .replace(/^(BRS|NRS|Base Regional de Saúde|Núcleo Regional de Saúde)\s+/i, "")
+        .trim()
+        .toLowerCase();
+
+      const matchedMuns = municipios.filter((m) => {
+        if (m.base_id === u.id) return true;
+        if (m.brs_name) {
+          const cleanBrs = m.brs_name
+            .replace(/^(BRS|NRS|Base Regional de Saúde|Núcleo Regional de Saúde)\s+/i, "")
+            .trim()
+            .toLowerCase();
+          return cleanBrs === cleanUnitName || m.brs_name.toLowerCase() === u.name.toLowerCase();
+        }
+        return false;
+      });
+
+      const combined = [...directServed];
+      matchedMuns.forEach((m) => {
+        if (!combined.some((c) => c.id === m.id || c.ibge_code === m.ibge_code)) {
+          combined.push(m);
+        }
+      });
+
+      map[u.id] = combined;
+    });
+    return map;
+  }, [units, municipios]);
+
+  // Filtragem de Unidades / Bases
+  const filteredUnits = useMemo(() => {
+    return units.filter((u) => {
+      const matchSearch =
+        u.name.toLowerCase().includes(unitSearch.toLowerCase()) ||
+        (u.municipality || "").toLowerCase().includes(unitSearch.toLowerCase()) ||
+        (u.macroregion || "").toLowerCase().includes(unitSearch.toLowerCase()) ||
+        (u.responsible_pharmacists || []).some(
+          (p) =>
+            p.full_name.toLowerCase().includes(unitSearch.toLowerCase()) ||
+            p.crf.toLowerCase().includes(unitSearch.toLowerCase())
+        );
+
+      if (!matchSearch) return false;
+
+      if (unitMacroFilter !== "all" && !u.macroregion.toLowerCase().includes(unitMacroFilter.toLowerCase())) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [units, unitSearch, unitMacroFilter]);
+
+  // Filtragem de Municípios (417)
+  const filteredMunicipios = useMemo(() => {
+    return municipios.filter((m) => {
+      const matchSearch =
+        m.name.toLowerCase().includes(munSearch.toLowerCase()) ||
+        m.ibge_code.includes(munSearch) ||
+        (m.brs_name || "").toLowerCase().includes(munSearch.toLowerCase());
+
+      if (!matchSearch) return false;
+
+      if (munMacroFilter !== "all" && m.macroregion !== munMacroFilter) {
+        return false;
+      }
+
+      if (munBrsFilter !== "all") {
+        const cleanFilter = munBrsFilter.replace(/^(BRS|NRS)\s+/i, "").trim().toLowerCase();
+        const cleanBrs = (m.brs_name || "").replace(/^(BRS|NRS)\s+/i, "").trim().toLowerCase();
+        if (cleanBrs !== cleanFilter && m.brs_name !== munBrsFilter) return false;
+      }
+
+      return true;
+    });
+  }, [municipios, munSearch, munMacroFilter, munBrsFilter]);
+
+  // Paginação dos Municípios
+  const totalMunPages = Math.ceil(filteredMunicipios.length / munPageSize) || 1;
+  const pagedMunicipios = useMemo(() => {
+    const start = (munPage - 1) * munPageSize;
+    return filteredMunicipios.slice(start, start + munPageSize);
+  }, [filteredMunicipios, munPage, munPageSize]);
+
+  // Total de Farmacêuticos Responsáveis cadastrados em todas as bases
+  const totalPharmacistsCount = useMemo(() => {
+    return units.reduce((acc, u) => acc + (u.responsible_pharmacists?.length || 0), 0);
+  }, [units]);
+
+  // =========================================================================
+  // HANDLERS: UNIDADES & BASES
+  // =========================================================================
+  const handleOpenNewUnit = () => {
+    setIsEditingUnit(false);
+    setSelectedUnitId("");
+    setUnitName("");
+    setUnitMacroregion("Macrorregional Centro-Leste");
+    setUnitMunicipality("");
+    setUnitCnes("");
+    setUnitEmail("");
+    setUnitPhone("");
+    setUnitAddress("");
+    setUnitActive(true);
+    setUnitError("");
+    setIsUnitModalOpen(true);
+  };
+
+  const handleOpenEditUnit = (u: Unit) => {
+    setIsEditingUnit(true);
+    setSelectedUnitId(u.id);
+    setUnitName(u.name);
+    setUnitMacroregion(u.macroregion);
+    setUnitMunicipality(u.municipality || "");
+    setUnitCnes(u.cnes || "");
+    setUnitEmail(u.email || "");
+    setUnitPhone(u.phone || "");
+    setUnitAddress(u.address || "");
+    setUnitActive(u.active !== false);
+    setUnitError("");
+    setIsUnitModalOpen(true);
+  };
 
   const handleSaveUnit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!unitName.trim() || !macroregion.trim()) return;
+    if (!unitName.trim()) {
+      setUnitError("O nome da Base Regional / Unidade é obrigatório.");
+      return;
+    }
 
-    await addUnit({
-      name: unitName.trim(),
-      macroregion: macroregion.trim(),
-      municipality: municipality.trim() || undefined,
-      cnes: cnes.trim() || undefined,
-      active: true,
+    setUnitLoading(true);
+    setUnitError("");
+    try {
+      if (isEditingUnit && selectedUnitId) {
+        await updateUnitFull(selectedUnitId, {
+          name: unitName.trim(),
+          macroregion: unitMacroregion,
+          municipality: unitMunicipality.trim() || null,
+          cnes: unitCnes.trim() || null,
+          email: unitEmail.trim() || null,
+          phone: unitPhone.trim() || null,
+          address: unitAddress.trim() || null,
+          active: unitActive,
+        });
+      } else {
+        await addUnit({
+          name: unitName.trim(),
+          macroregion: unitMacroregion,
+          municipality: unitMunicipality.trim() || null,
+          cnes: unitCnes.trim() || null,
+          email: unitEmail.trim() || null,
+          phone: unitPhone.trim() || null,
+          address: unitAddress.trim() || null,
+          active: true,
+          responsible_pharmacists: [],
+          served_municipalities: [],
+        });
+      }
+      setIsUnitModalOpen(false);
+    } catch (err: any) {
+      setUnitError(err?.message || "Erro ao salvar unidade.");
+    } finally {
+      setUnitLoading(false);
+    }
+  };
+
+  // Gerenciar Farmacêuticos
+  const handleOpenPharmacists = (u: Unit) => {
+    setActiveUnitForPharm(u);
+    setNewPharmName("");
+    setNewPharmCrf("");
+    setNewPharmPhone("");
+    setNewPharmEmail("");
+    setNewPharmIsRt(false);
+    setIsPharmacistModalOpen(true);
+  };
+
+  const handleAddPharmacist = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeUnitForPharm || !newPharmName.trim() || !newPharmCrf.trim()) return;
+
+    const newPharm: UnidadeFarmaceutico = {
+      id: `rf-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      unit_id: activeUnitForPharm.id,
+      pharmacist_id: `p-${Date.now()}`,
+      full_name: newPharmName.trim(),
+      crf: newPharmCrf.trim().toUpperCase(),
+      phone: newPharmPhone.trim() || null,
+      email: newPharmEmail.trim() || null,
+      is_technical_lead: newPharmIsRt,
+      created_at: new Date().toISOString(),
+    };
+
+    const currentList = activeUnitForPharm.responsible_pharmacists || [];
+    const updatedList = [...currentList, newPharm];
+
+    await updateUnitFull(activeUnitForPharm.id, {
+      responsible_pharmacists: updatedList,
     });
 
-    setIsUnitModalOpen(false);
-    setUnitName("");
-    setMunicipality("");
-    setCnes("");
+    setActiveUnitForPharm({
+      ...activeUnitForPharm,
+      responsible_pharmacists: updatedList,
+    });
+
+    setNewPharmName("");
+    setNewPharmCrf("");
+    setNewPharmPhone("");
+    setNewPharmEmail("");
+    setNewPharmIsRt(false);
   };
 
-  const handleUpdateUnit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editUnitName.trim() || !editingUnitId) return;
+  const handleRemovePharmacist = async (pharmId: string) => {
+    if (!activeUnitForPharm) return;
+    const currentList = activeUnitForPharm.responsible_pharmacists || [];
+    const updatedList = currentList.filter((p) => p.id !== pharmId);
 
-    setEditUnitLoading(true);
-    setEditUnitError("");
-    setEditUnitSuccess("");
+    await updateUnitFull(activeUnitForPharm.id, {
+      responsible_pharmacists: updatedList,
+    });
 
-    try {
-      const res = await updateUnit(editingUnitId, {
-        name: editUnitName.trim(),
-        macroregion: editMacroregion.trim(),
-        municipality: editMunicipality.trim() || undefined,
-        cnes: editCnes.trim() || undefined,
-        active: editUnitActive,
-      });
-
-      if (!res.success) {
-        setEditUnitError(res.error || "Falha ao atualizar unidade.");
-        setEditUnitLoading(false);
-        return;
-      }
-
-      setEditUnitSuccess("Unidade atualizada com sucesso no banco de dados!");
-      setTimeout(() => {
-        setIsEditUnitModalOpen(false);
-        setEditUnitSuccess("");
-      }, 1000);
-    } catch (err: any) {
-      setEditUnitError(err?.message || "Erro inesperado ao salvar alterações.");
-    } finally {
-      setEditUnitLoading(false);
-    }
+    setActiveUnitForPharm({
+      ...activeUnitForPharm,
+      responsible_pharmacists: updatedList,
+    });
   };
 
-  const handleSaveUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setUserError("");
-    setUserSuccess("");
+  // Gerenciar Municípios
+  const handleOpenMunicipalities = (u: Unit) => {
+    setActiveUnitForMuns(u);
+    setSelectedMunIdToAdd("");
+    setIsMunicipalitiesModalOpen(true);
+  };
 
-    if (!userName.trim() || !userEmail.trim()) {
-      setUserError("Preencha o nome completo e o e-mail institucional.");
+  const handleAddMunicipality = async () => {
+    if (!activeUnitForMuns || !selectedMunIdToAdd) return;
+    const munObj = municipios.find((m) => m.id === selectedMunIdToAdd);
+    if (!munObj) return;
+
+    const currentList = activeUnitForMuns.served_municipalities || [];
+    if (currentList.some((m) => m.id === munObj.id)) {
+      alert("Este município já está vinculado a esta base.");
       return;
     }
 
-    if (userPassword.length < 6) {
-      setUserError("A senha provisória deve ter no mínimo 6 caracteres.");
-      return;
-    }
+    const updatedList = [...currentList, munObj];
+    await updateUnitFull(activeUnitForMuns.id, {
+      served_municipalities: updatedList,
+    });
 
-    setUserLoading(true);
+    // Atualiza também a base no município
+    await updateMunicipio(munObj.id, {
+      base_id: activeUnitForMuns.id,
+      brs_name: activeUnitForMuns.name.replace(/^BRS\s+/i, ""),
+    });
 
-    try {
-      const res = await registerUser({
-        full_name: userName.trim(),
-        email: userEmail.trim().toLowerCase(),
-        password: userPassword,
-        crf: userCrf.trim() || undefined,
-        unit_id: userRole === "admin" && userUnitId === "general" ? null : userUnitId,
-        role: userRole,
-      });
-
-      if (!res.success) {
-        setUserError(res.error || "Falha ao registrar usuário.");
-        setUserLoading(false);
-        return;
-      }
-
-      setUserSuccess(`Profissional ${userName} cadastrado com sucesso! As credenciais de acesso já estão ativas.`);
-      setTimeout(() => {
-        setIsUserModalOpen(false);
-        setUserName("");
-        setUserEmail("");
-        setUserPassword("PharmaCare@2026");
-        setUserCrf("");
-        setUserSuccess("");
-        setUserError("");
-      }, 1200);
-    } catch (err: any) {
-      setUserError(err?.message || "Erro inesperado ao registrar usuário.");
-    } finally {
-      setUserLoading(false);
-    }
+    setActiveUnitForMuns({
+      ...activeUnitForMuns,
+      served_municipalities: updatedList,
+    });
+    setSelectedMunIdToAdd("");
   };
 
-  const handleUpdateUser = async (e: React.FormEvent) => {
+  const handleRemoveMunicipality = async (munId: string) => {
+    if (!activeUnitForMuns) return;
+    const currentList = activeUnitForMuns.served_municipalities || [];
+    const updatedList = currentList.filter((m) => m.id !== munId);
+
+    await updateUnitFull(activeUnitForMuns.id, {
+      served_municipalities: updatedList,
+    });
+
+    setActiveUnitForMuns({
+      ...activeUnitForMuns,
+      served_municipalities: updatedList,
+    });
+  };
+
+  // =========================================================================
+  // HANDLERS: MUNICÍPIOS
+  // =========================================================================
+  const handleOpenEditMun = (m: Municipio) => {
+    setEditingMun(m);
+    setEditMunName(m.name);
+    setEditMunIbge(m.ibge_code);
+    setEditMunBrsName(m.brs_name || "");
+    setIsMunEditModalOpen(true);
+  };
+
+  const handleSaveEditMun = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editUserName.trim() || !editingUserId) return;
+    if (!editingMun) return;
 
-    setEditUserLoading(true);
-    setEditUserError("");
-    setEditUserSuccess("");
+    await updateMunicipio(editingMun.id, {
+      name: editMunName.trim(),
+      ibge_code: editMunIbge.trim(),
+      brs_name: editMunBrsName.trim() || null,
+    });
 
-    if (editUserPassword && editUserPassword.length < 6) {
-      setEditUserError("A nova senha deve ter no mínimo 6 caracteres.");
-      setEditUserLoading(false);
-      return;
-    }
-
-    try {
-      const res = await updateUser(editingUserId, {
-        full_name: editUserName.trim(),
-        email: editUserEmail.trim().toLowerCase(),
-        crf: editUserCrf.trim() || null,
-        unit_id: editUserRole === "admin" && editUserUnitId === "general" ? null : editUserUnitId,
-        role: editUserRole,
-        password: editUserPassword.trim() || undefined,
-        active: editUserActive,
-      });
-
-      if (!res.success) {
-        setEditUserError(res.error || "Falha ao atualizar dados do usuário.");
-        setEditUserLoading(false);
-        return;
-      }
-
-      setEditUserSuccess("Cadastro do profissional atualizado com sucesso no Supabase!");
-      setTimeout(() => {
-        setIsEditUserModalOpen(false);
-        setEditUserSuccess("");
-      }, 1200);
-    } catch (err: any) {
-      setEditUserError(err?.message || "Erro inesperado ao atualizar usuário.");
-    } finally {
-      setEditUserLoading(false);
-    }
+    setIsMunEditModalOpen(false);
   };
 
-  const handleToggleUserStatus = async (user: Profile) => {
-    const isCurrentlyActive = user.active !== false;
-    const targetAction = isCurrentlyActive ? "inativar" : "reativar";
-    const confirmMsg = isCurrentlyActive
-      ? `Tem certeza que deseja inativar o acesso de ${user.full_name}? O profissional não conseguirá acessar o sistema até ser reativado.`
-      : `Deseja reativar o acesso ao sistema para ${user.full_name}?`;
-
-    if (!window.confirm(confirmMsg)) return;
-
-    setUserActionLoadingId(user.id);
-    try {
-      const res = await toggleUserActive(user.id, !isCurrentlyActive);
-      if (!res.success) {
-        alert(res.error || `Erro ao ${targetAction} usuário.`);
-      }
-    } catch (err: any) {
-      alert(err?.message || `Erro ao ${targetAction} usuário.`);
-    } finally {
-      setUserActionLoadingId(null);
+  // =========================================================================
+  // HANDLERS: ORIGENS
+  // =========================================================================
+  const handleOpenOrigem = (orig?: Origem) => {
+    if (orig) {
+      setEditingOrigem(orig);
+      setOrigemName(orig.name);
+      setOrigemSigla(orig.sigla || "");
+      setOrigemDesc(orig.description || "");
+      setOrigemActive(orig.active);
+    } else {
+      setEditingOrigem(null);
+      setOrigemName("");
+      setOrigemSigla("");
+      setOrigemDesc("");
+      setOrigemActive(true);
     }
+    setIsOrigemModalOpen(true);
+  };
+
+  const handleSaveOrigem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!origemName.trim()) return;
+
+    if (editingOrigem) {
+      await updateOrigem(editingOrigem.id, {
+        name: origemName.trim(),
+        sigla: origemSigla.trim() || null,
+        description: origemDesc.trim() || null,
+        active: origemActive,
+      });
+    } else {
+      await addOrigem({
+        name: origemName.trim(),
+        sigla: origemSigla.trim() || null,
+        description: origemDesc.trim() || null,
+        active: true,
+      });
+    }
+    setIsOrigemModalOpen(false);
   };
 
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#E5E7EB]">
+    <div className="space-y-6 pb-16">
+      {/* Topo / Cabeçalho Unificado */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-[#171A20] tracking-tight">
-            Gestão de Unidades & Credenciamento de Usuários
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+            <Building2 className="h-6 w-6 text-emerald-600" />
+            Unidades & Estrutura Territorial da Bahia
           </h1>
-          <p className="text-xs text-[#5C5E62] mt-0.5">
-            Configuração das Bases Regionais de Saúde (BRS), núcleos e lotação dos farmacêuticos clínicos.
+          <p className="text-xs text-slate-500 mt-1">
+            Central integrada: Bases Regionais de Saúde (BRS), Núcleos (NRS), Municípios jurisdicionados e Equipes Farmacêuticas.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          {activeTab === "units" && isAdmin && (
+        {isGestor && (
+          <div className="flex items-center gap-2">
             <Button
-              variant="primary"
-              size="md"
-              onClick={() => setIsUnitModalOpen(true)}
+              onClick={handleOpenNewUnit}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1.5 text-xs"
             >
-              <PlusCircle className="w-4 h-4 mr-1.5" />
-              Cadastrar Nova Unidade
+              <PlusCircle className="h-4 w-4" />
+              Nova Base Regional / Unidade
             </Button>
-          )}
-
-          {activeTab === "users" && isAdmin && (
-            <Button
-              variant="primary"
-              size="md"
-              onClick={() => {
-                setUserError("");
-                setUserSuccess("");
-                setIsUserModalOpen(true);
-              }}
-            >
-              <UserPlus className="w-4 h-4 mr-1.5" />
-              Cadastrar Novo Usuário
-            </Button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-[#E5E7EB] space-x-4">
-        <button
-          onClick={() => setActiveTab("units")}
-          className={`pb-3 text-sm font-semibold border-b-2 flex items-center gap-2 transition-colors ${
-            activeTab === "units"
-              ? "border-[#171A20] text-[#171A20]"
-              : "border-transparent text-[#5C5E62] hover:text-[#171A20]"
-          }`}
-        >
-          <Building2 className="w-4 h-4" />
-          <span>Unidades de Saúde (BRS)</span>
-          <Badge variant="neutral">{units.length}</Badge>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("users")}
-          className={`pb-3 text-sm font-semibold border-b-2 flex items-center gap-2 transition-colors ${
-            activeTab === "users"
-              ? "border-[#171A20] text-[#171A20]"
-              : "border-transparent text-[#5C5E62] hover:text-[#171A20]"
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          <span>Usuários & Lotação</span>
-          <Badge variant="neutral">{profiles.length}</Badge>
-        </button>
-      </div>
-
-      {/* Aba de Unidades */}
-      {activeTab === "units" && (
+      {/* Cards de Métricas Integradas */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-[#171A20] text-white border-b border-[#282C34]">
-                    <th className="py-2.5 px-4 font-semibold">Nome da Unidade / BRS</th>
-                    <th className="py-2.5 px-4 font-semibold">Macrorregional de Saúde</th>
-                    <th className="py-2.5 px-4 font-semibold">Município</th>
-                    <th className="py-2.5 px-4 font-semibold">CNES</th>
-                    <th className="py-2.5 px-4 font-semibold text-center">Status</th>
-                    {isAdmin && (
-                      <th className="py-2.5 px-4 font-semibold text-right">Ações</th>
-                    )}
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-emerald-700">Bases Regionais (BRS)</span>
+              <Building2 className="h-4 w-4 text-emerald-600" />
+            </div>
+            <div className="text-2xl font-bold text-slate-900 mt-1">{units.length}</div>
+            <span className="text-[11px] text-slate-500">Unidades de referência SESAB</span>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-blue-700">Núcleos (NRS)</span>
+              <Compass className="h-4 w-4 text-blue-600" />
+            </div>
+            <div className="text-2xl font-bold text-slate-900 mt-1">{nucleos.length || 9}</div>
+            <span className="text-[11px] text-slate-500">Macrorregiões de saúde</span>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-indigo-700">Municípios Bahia</span>
+              <MapPin className="h-4 w-4 text-indigo-600" />
+            </div>
+            <div className="text-2xl font-bold text-slate-900 mt-1">{municipios.length}</div>
+            <span className="text-[11px] text-slate-500">100% integrados às bases</span>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-amber-700">Equipe Farmacêutica</span>
+              <Stethoscope className="h-4 w-4 text-amber-600" />
+            </div>
+            <div className="text-2xl font-bold text-slate-900 mt-1">{totalPharmacistsCount}</div>
+            <span className="text-[11px] text-slate-500">Responsáveis Técnicos & Pareceristas</span>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-600">Origens de Processo</span>
+              <Landmark className="h-4 w-4 text-slate-500" />
+            </div>
+            <div className="text-2xl font-bold text-slate-900 mt-1">{origens.length}</div>
+            <span className="text-[11px] text-slate-500">Judiciais e administrativas</span>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Navegação por Abas Unificadas */}
+      <div className="flex border-b border-slate-200">
+        <button
+          type="button"
+          onClick={() => setActiveMainTab("bases")}
+          className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${
+            activeMainTab === "bases"
+              ? "border-emerald-600 text-emerald-700 font-bold"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <Building2 className="h-4 w-4" />
+          Bases Regionais & Equipes ({units.length})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveMainTab("municipios")}
+          className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${
+            activeMainTab === "municipios"
+              ? "border-emerald-600 text-emerald-700 font-bold"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <MapPin className="h-4 w-4" />
+          Municípios da Bahia ({municipios.length})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveMainTab("nucleos")}
+          className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${
+            activeMainTab === "nucleos"
+              ? "border-emerald-600 text-emerald-700 font-bold"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <Compass className="h-4 w-4" />
+          Núcleos (NRS) & DIRES
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveMainTab("origens")}
+          className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${
+            activeMainTab === "origens"
+              ? "border-emerald-600 text-emerald-700 font-bold"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <Landmark className="h-4 w-4" />
+          Origens de Demanda ({origens.length})
+        </button>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* ABA 1: BASES REGIONAIS & UNIDADES (COM EQUIPES E MUNICÍPIOS INTEGRADOS) */}
+      {/* ========================================================================= */}
+      {activeMainTab === "bases" && (
+        <div className="space-y-4">
+          {/* Barra de Filtro de Unidades */}
+          <Card>
+            <CardContent className="p-3.5 flex flex-col sm:flex-row items-center gap-3">
+              <div className="relative flex-1 w-full">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <Input
+                  placeholder="Buscar base por nome, município-sede, macrorregião ou farmacêutico..."
+                  value={unitSearch}
+                  onChange={(e) => setUnitSearch(e.target.value)}
+                  className="pl-9 text-xs"
+                />
+              </div>
+
+              <select
+                value={unitMacroFilter}
+                onChange={(e) => setUnitMacroFilter(e.target.value)}
+                className="w-full sm:w-64 h-9 text-xs rounded-md border border-slate-200 bg-white px-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="all">Todas as Macrorregiões</option>
+                {BAHIA_MACRORREGIOES.map((macro) => (
+                  <option key={macro} value={macro}>
+                    {macro}
+                  </option>
+                ))}
+              </select>
+            </CardContent>
+          </Card>
+
+          {/* Grid de Cards de Bases Regionais */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {filteredUnits.map((unit) => {
+              const munsOfThisBase = unitMunicipalitiesMap[unit.id] || [];
+              const pharms = unit.responsible_pharmacists || [];
+              const rtPharm = pharms.find((p) => p.is_technical_lead) || pharms[0];
+
+              return (
+                <Card
+                  key={unit.id}
+                  className="border-slate-200 shadow-sm hover:border-emerald-300 transition-all flex flex-col justify-between"
+                >
+                  <CardHeader className="p-4 pb-2 border-b border-slate-100 bg-slate-50/50">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-sm text-slate-900">{unit.name}</h3>
+                          {unit.active === false ? (
+                            <Badge variant="outline" className="text-[9px] text-slate-400">
+                              Inativa
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[9px]">
+                              Ativa
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
+                          <Compass className="h-3.5 w-3.5 text-blue-600" />
+                          <span>{unit.macroregion}</span>
+                          {unit.cnes && <span>• CNES: {unit.cnes}</span>}
+                        </div>
+                      </div>
+
+                      {isGestor && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenEditUnit(unit)}
+                          className="h-8 w-8 p-0 text-slate-500 hover:text-slate-800"
+                          title="Editar Unidade"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="p-4 space-y-3.5 text-xs flex-1">
+                    {/* Contatos da Base */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-600 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <Mail className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                        <span className="truncate">{unit.email || "E-mail não informado"}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 truncate">
+                        <Phone className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                        <span>{unit.phone || "Telefone não informado"}</span>
+                      </div>
+                      {unit.address && (
+                        <div className="sm:col-span-2 flex items-center gap-1.5 text-slate-500">
+                          <MapPin className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                          <span className="truncate">{unit.address}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Bloco: Equipe de Farmacêuticos Responsáveis */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                          <Stethoscope className="h-3.5 w-3.5 text-emerald-600" />
+                          Farmacêuticos Responsáveis ({pharms.length})
+                        </span>
+                        {isGestor && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenPharmacists(unit)}
+                            className="text-[11px] text-emerald-700 hover:text-emerald-900 font-semibold flex items-center gap-1"
+                          >
+                            <Plus className="h-3 w-3" />
+                            Gerenciar Equipe
+                          </button>
+                        )}
+                      </div>
+
+                      {pharms.length === 0 ? (
+                        <div className="p-2 border border-dashed border-slate-200 rounded text-slate-400 text-[11px] text-center">
+                          Nenhum farmacêutico responsável cadastrado nesta base.
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          {pharms.map((p) => (
+                            <div
+                              key={p.id}
+                              className="bg-white p-2 rounded border border-slate-200 flex items-center justify-between text-[11px]"
+                            >
+                              <div className="truncate">
+                                <span className="font-semibold text-slate-800">{p.full_name}</span>
+                                <span className="text-slate-500 ml-1.5 font-mono">({p.crf})</span>
+                                {p.is_technical_lead && (
+                                  <Badge className="ml-1.5 text-[8px] bg-emerald-600 text-white">
+                                    RT Titular
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                                {p.phone && <span>{p.phone}</span>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Bloco: Municípios Jurisdicionados */}
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                          <MapPin className="h-3.5 w-3.5 text-indigo-600" />
+                          Municípios Jurisdicionados ({munsOfThisBase.length})
+                        </span>
+                        {isGestor && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenMunicipalities(unit)}
+                            className="text-[11px] text-indigo-700 hover:text-indigo-900 font-semibold flex items-center gap-1"
+                          >
+                            <Pencil className="h-3 w-3" />
+                            Vincular Cidades
+                          </button>
+                        )}
+                      </div>
+
+                      {munsOfThisBase.length === 0 ? (
+                        <div className="p-2 border border-dashed border-slate-200 rounded text-slate-400 text-[11px] text-center">
+                          Nenhum município associado a esta base no mapeamento.
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pr-1">
+                          {munsOfThisBase.slice(0, 12).map((m) => (
+                            <Badge
+                              key={m.id}
+                              variant="outline"
+                              className="text-[10px] bg-slate-50 text-slate-700 border-slate-200"
+                            >
+                              {m.name}
+                            </Badge>
+                          ))}
+                          {munsOfThisBase.length > 12 && (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] bg-indigo-50 text-indigo-700 border-indigo-200 cursor-pointer"
+                              onClick={() => handleOpenMunicipalities(unit)}
+                            >
+                              +{munsOfThisBase.length - 12} municípios...
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ABA 2: MUNICÍPIOS DA BAHIA (417) */}
+      {/* ========================================================================= */}
+      {activeMainTab === "municipios" && (
+        <Card>
+          <CardHeader className="p-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-base font-semibold text-slate-800">
+                Municípios do Estado da Bahia ({filteredMunicipios.length})
+              </CardTitle>
+              <CardDescription className="text-xs text-slate-500">
+                Relação oficial dos 417 municípios da Bahia com vínculo territorial direto com BRS e NRS.
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="p-4 space-y-4">
+            {/* Filtros de Municípios */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <Input
+                  placeholder="Filtrar por nome ou código IBGE..."
+                  value={munSearch}
+                  onChange={(e) => {
+                    setMunSearch(e.target.value);
+                    setMunPage(1);
+                  }}
+                  className="pl-9 text-xs"
+                />
+              </div>
+
+              <select
+                value={munMacroFilter}
+                onChange={(e) => {
+                  setMunMacroFilter(e.target.value);
+                  setMunPage(1);
+                }}
+                className="w-full text-xs p-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="all">Todas as Macrorregiões</option>
+                {BAHIA_MACRORREGIOES.map((macro) => (
+                  <option key={macro} value={macro}>
+                    {macro}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={munBrsFilter}
+                onChange={(e) => {
+                  setMunBrsFilter(e.target.value);
+                  setMunPage(1);
+                }}
+                className="w-full text-xs p-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="all">Todas as Unidades (BRS / NRS)</option>
+                {BAHIA_BRS.map((b) => (
+                  <option key={b.id} value={b.name}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Tabela de Municípios */}
+            <div className="overflow-x-auto border border-slate-200 rounded-lg">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
+                  <tr>
+                    <th className="py-2.5 px-3">Município / UF</th>
+                    <th className="py-2.5 px-3">Código IBGE</th>
+                    <th className="py-2.5 px-3">Base Regional (BRS)</th>
+                    <th className="py-2.5 px-3">Núcleo (NRS)</th>
+                    <th className="py-2.5 px-3">Macrorregião</th>
+                    <th className="py-2.5 px-3">Equipe / RT Responsável</th>
+                    {isGestor && <th className="py-2.5 px-3 text-right">Ação</th>}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#E5E7EB] bg-white">
-                  {units.map((u) => (
-                    <tr key={u.id} className="hover:bg-[#F9FAFB] transition-colors">
-                      <td className="py-3 px-4 font-semibold text-[#171A20]">
-                        {u.name}
+                <tbody className="divide-y divide-slate-100">
+                  {pagedMunicipios.map((m) => (
+                    <tr key={m.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-2.5 px-3 font-semibold text-slate-900">
+                        {m.name} - BA
                       </td>
-                      <td className="py-3 px-4 text-[#5C5E62]">
-                        {u.macroregion}
-                      </td>
-                      <td className="py-3 px-4 text-[#171A20]">
-                        {u.municipality || "—"}
-                      </td>
-                      <td className="py-3 px-4 font-mono text-[#5C5E62]">
-                        {u.cnes || "—"}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <Badge variant={u.active ? "success" : "neutral"}>
-                          {u.active ? "Ativa" : "Inativa"}
+                      <td className="py-2.5 px-3 font-mono text-slate-500">{m.ibge_code}</td>
+                      <td className="py-2.5 px-3">
+                        <Badge variant="outline" className="text-[10px] bg-slate-50 text-slate-800">
+                          {m.brs_name ? `BRS ${m.brs_name.replace(/^BRS\s+/i, "")}` : "Não vinculada"}
                         </Badge>
                       </td>
-                      {isAdmin && (
-                        <td className="py-3 px-4 text-right">
+                      <td className="py-2.5 px-3 text-slate-600">{m.nrs_name || "NRS"}</td>
+                      <td className="py-2.5 px-3 text-slate-600">{m.macroregion || "Bahia"}</td>
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-1.5 text-slate-700">
+                          <Stethoscope className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
+                          <span className="font-medium text-xs text-slate-800">
+                            {m.responsible_pharmacist || "Equipe da Base Regional"}
+                          </span>
+                        </div>
+                      </td>
+                      {isGestor && (
+                        <td className="py-2.5 px-3 text-right">
                           <Button
-                            variant="outline"
+                            type="button"
+                            variant="ghost"
                             size="sm"
-                            onClick={() => {
-                              setEditingUnitId(u.id);
-                              setEditUnitName(u.name);
-                              setEditMacroregion(u.macroregion);
-                              setEditMunicipality(u.municipality || "");
-                              setEditCnes(u.cnes || "");
-                              setEditUnitActive(u.active);
-                              setEditUnitError("");
-                              setEditUnitSuccess("");
-                              setIsEditUnitModalOpen(true);
-                            }}
-                            className="h-7 px-2.5 text-[11px]"
+                            onClick={() => handleOpenEditMun(m)}
+                            className="h-7 text-xs text-slate-500 hover:text-slate-800"
                           >
-                            <Pencil className="w-3 h-3 mr-1" />
+                            <Pencil className="h-3 w-3 mr-1" />
                             Editar
                           </Button>
                         </td>
@@ -401,662 +957,725 @@ export default function UnidadesPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Paginação */}
+            <div className="flex items-center justify-between text-xs text-slate-500 pt-2">
+              <div>
+                Mostrando {pagedMunicipios.length} de {filteredMunicipios.length} municípios
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMunPage(1)}
+                  disabled={munPage === 1}
+                  className="h-8 w-8 p-0"
+                >
+                  <ChevronsLeft className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMunPage((prev) => Math.max(prev - 1, 1))}
+                  disabled={munPage === 1}
+                  className="h-8 w-8 p-0"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </Button>
+                <span className="px-2 font-medium">
+                  Página {munPage} de {totalMunPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMunPage((prev) => Math.min(prev + 1, totalMunPages))}
+                  disabled={munPage === totalMunPages}
+                  className="h-8 w-8 p-0"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMunPage(totalMunPages)}
+                  disabled={munPage === totalMunPages}
+                  className="h-8 w-8 p-0"
+                >
+                  <ChevronsRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Aba de Usuários (Restrito à Administração) */}
-      {activeTab === "users" && (
-        <div className="space-y-4">
-          {/* Banner de Controle de Acesso */}
-          <div className="p-3 bg-[#F4F4F6] border border-[#E5E7EB] rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#5C5E62]">
-            <div className="flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-[#171A20] shrink-0" />
-              <span>
-                {isAdmin ? (
-                  <>
-                    <strong className="text-[#171A20]">Área Administrativa Restrita:</strong> Você pode cadastrar, editar perfis, alterar lotações e redefinir senhas dos profissionais de saúde da rede.
-                  </>
-                ) : (
-                  <>
-                    <strong className="text-[#171A20]">Modo Consulta:</strong> Apenas administradores gerais possuem permissão para credenciar e alterar os vínculos dos farmacêuticos.
-                  </>
-                )}
-              </span>
-            </div>
-            {isAdmin && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setUserError("");
-                  setUserSuccess("");
-                  setIsUserModalOpen(true);
-                }}
-                className="shrink-0"
-              >
-                <UserPlus className="w-3.5 h-3.5 mr-1.5" />
-                Novo Credenciamento
-              </Button>
-            )}
-          </div>
+      {/* ========================================================================= */}
+      {/* ABA 3: NÚCLEOS REGIONAIS (NRS) & DIRES */}
+      {/* ========================================================================= */}
+      {activeMainTab === "nucleos" && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader className="p-4 border-b border-slate-100 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-base font-semibold text-slate-800">
+                  Núcleos Regionais de Saúde (NRS) da Bahia
+                </CardTitle>
+                <CardDescription className="text-xs text-slate-500">
+                  Coordenações macrorregionais de saúde que agrupam as Bases Regionais (BRS).
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                {(nucleos.length > 0 ? nucleos : [
+                  { id: "1", code: "NRS-LESTE", name: "NRS Salvador / Leste", macroregion: "Leste" },
+                  { id: "2", code: "NRS-CENTRO-LESTE", name: "NRS Feira de Santana", macroregion: "Centro Leste" },
+                  { id: "3", code: "NRS-NORTE", name: "NRS Juazeiro", macroregion: "Norte" },
+                  { id: "4", code: "NRS-SUDOESTE", name: "NRS Vitória da Conquista", macroregion: "Sudoeste" },
+                  { id: "5", code: "NRS-SUL", name: "NRS Ilhéus / Itabuna", macroregion: "Sul" },
+                  { id: "6", code: "NRS-OESTE", name: "NRS Barreiras", macroregion: "Oeste" },
+                  { id: "7", code: "NRS-CENTRO-NORTE", name: "NRS Jacobina", macroregion: "Centro Norte" },
+                  { id: "8", code: "NRS-NORDESTE", name: "NRS Alagoinhas", macroregion: "Nordeste" },
+                  { id: "9", code: "NRS-EXTREMO-SUL", name: "NRS Teixeira de Freitas", macroregion: "Extremo Sul" },
+                ]).map((n) => (
+                  <div key={n.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900">{n.name}</span>
+                      <Badge variant="outline" className="text-[9px]">
+                        {n.code}
+                      </Badge>
+                    </div>
+                    <div className="text-slate-500 text-[11px]">
+                      Macrorregião: <strong>{n.macroregion}</strong>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
 
           <Card>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-[#171A20] text-white border-b border-[#282C34]">
-                      <th className="py-2.5 px-4 font-semibold">Nome do Profissional</th>
-                      <th className="py-2.5 px-4 font-semibold">E-mail Institucional</th>
-                      <th className="py-2.5 px-4 font-semibold">CRF</th>
-                      <th className="py-2.5 px-4 font-semibold">Unidade Vinculada</th>
-                      <th className="py-2.5 px-4 font-semibold text-center">Papel (Role)</th>
-                      <th className="py-2.5 px-4 font-semibold text-center">Status</th>
-                      {isAdmin && (
-                        <th className="py-2.5 px-4 font-semibold text-right">Ações</th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#E5E7EB] bg-white">
-                    {profiles.map((p) => {
-                      const unit = units.find((u) => u.id === p.unit_id);
-                      return (
-                        <tr key={p.id} className="hover:bg-[#F9FAFB] transition-colors">
-                          <td className="py-3 px-4 font-semibold text-[#171A20]">
-                            {p.full_name}
-                          </td>
-                          <td className="py-3 px-4 font-mono text-[#5C5E62]">
-                            {p.email}
-                          </td>
-                          <td className="py-3 px-4 font-mono text-[#171A20]">
-                            {p.crf || "—"}
-                          </td>
-                          <td className="py-3 px-4 text-[#171A20]">
-                            {unit ? unit.name : <span className="text-[#9CA3AF]">Acesso Geral (Sem unidade fixa)</span>}
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            <Badge
-                              variant={
-                                p.role === "admin"
-                                  ? "default"
-                                  : p.role === "pharmacist"
-                                  ? "success"
-                                  : "neutral"
-                              }
-                            >
-                              {p.role === "admin"
-                                ? "Admin Geral"
-                                : p.role === "pharmacist"
-                                ? "Farmacêutico"
-                                : "Visualizador"}
-                            </Badge>
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            {p.active !== false ? (
-                              <Badge variant="success">Ativo</Badge>
-                            ) : (
-                              <Badge variant="danger">Inativo</Badge>
-                            )}
-                          </td>
-                          {isAdmin && (
-                            <td className="py-3 px-4 text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    setEditingUserId(p.id);
-                                    setEditUserName(p.full_name);
-                                    setEditUserEmail(p.email);
-                                    setEditUserCrf(p.crf || "");
-                                    setEditUserUnitId(p.unit_id || "general");
-                                    setEditUserRole(p.role);
-                                    setEditUserActive(p.active !== false);
-                                    setEditUserPassword("");
-                                    setEditUserError("");
-                                    setEditUserSuccess("");
-                                    setIsEditUserModalOpen(true);
-                                  }}
-                                  className="h-7 px-2.5 text-[11px]"
-                                >
-                                  <Pencil className="w-3 h-3 mr-1" />
-                                  Editar
-                                </Button>
-
-                                {p.id === currentUser?.id ? (
-                                  <span
-                                    className="text-[10px] text-gray-400 italic px-2 py-1"
-                                    title="Não é possível inativar a própria conta logada"
-                                  >
-                                    (Você)
-                                  </span>
-                                ) : (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleToggleUserStatus(p)}
-                                    disabled={userActionLoadingId === p.id}
-                                    className={`h-7 px-2.5 text-[11px] ${
-                                      p.active !== false
-                                        ? "text-red-700 hover:text-red-800 hover:bg-red-50 border-red-200"
-                                        : "text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-200"
-                                    }`}
-                                  >
-                                    {p.active !== false ? (
-                                      <>
-                                        <UserX className="w-3 h-3 mr-1 text-red-600" />
-                                        Inativar
-                                      </>
-                                    ) : (
-                                      <>
-                                        <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
-                                        Reativar
-                                      </>
-                                    )}
-                                  </Button>
-                                )}
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+            <CardHeader className="p-4 border-b border-slate-100">
+              <CardTitle className="text-base font-semibold text-slate-800">
+                Diretorias Regionais de Saúde (DIRES) - Histórico
+              </CardTitle>
+              <CardDescription className="text-xs text-slate-500">
+                Divisões de referência histórica utilizadas na tramitação documental e em processos antigos do SEI.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 text-xs">
+                {diresList.map((d) => (
+                  <div key={d.id} className="p-2.5 bg-white border border-slate-200 rounded text-slate-800">
+                    <span className="font-bold font-mono text-emerald-800">{d.code}</span>
+                    <p className="text-[11px] text-slate-600 truncate">{d.name}</p>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
         </div>
       )}
 
-      {/* Modal Nova Unidade */}
-      <Dialog
-        open={isUnitModalOpen}
-        onOpenChange={setIsUnitModalOpen}
-        title="Cadastrar Nova Unidade de Saúde"
-        description="Adicione uma nova base regional de saúde à rede do Cuidado Farmacêutico."
-      >
-        <form onSubmit={handleSaveUnit} className="space-y-4">
-          <Input
-            label="Nome da Unidade / Núcleo *"
-            placeholder="Ex: BRS Barreiras"
-            value={unitName}
-            onChange={(e) => setUnitName(e.target.value)}
-            required
-          />
-
-          <div>
-            <label className="text-xs font-semibold text-[#393C41] block mb-1">
-              Macrorregional de Saúde *
-            </label>
-            <select
-              value={macroregion}
-              onChange={(e) => setMacroregion(e.target.value)}
-              className="w-full h-9 px-3 text-xs bg-white border border-[#D1D5DB] rounded focus:outline-none"
-              required
-            >
-              <option value="Macrorregional Norte">Macrorregional Norte</option>
-              <option value="Macrorregional Centro-Leste">Macrorregional Centro-Leste</option>
-              <option value="Macrorregional Sudoeste">Macrorregional Sudoeste</option>
-              <option value="Macrorregional Leste">Macrorregional Leste</option>
-              <option value="Macrorregional Oeste">Macrorregional Oeste</option>
-              <option value="Macrorregional Sul">Macrorregional Sul</option>
-              <option value="Macrorregional Extremo-Sul">Macrorregional Extremo-Sul</option>
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input
-              label="Município-Sede"
-              placeholder="Ex: Barreiras"
-              value={municipality}
-              onChange={(e) => setMunicipality(e.target.value)}
-            />
-            <Input
-              label="Código CNES"
-              placeholder="Ex: 2801452"
-              value={cnes}
-              onChange={(e) => setCnes(e.target.value)}
-            />
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsUnitModalOpen(false)}
-            >
-              Cancelar
-            </Button>
-            <Button type="submit" variant="primary" size="sm">
-              Salvar Unidade
-            </Button>
-          </div>
-        </form>
-      </Dialog>
-
-      {/* Modal Editar Unidade */}
-      <Dialog
-        open={isEditUnitModalOpen}
-        onOpenChange={setIsEditUnitModalOpen}
-        title="Editar Unidade de Saúde"
-        description="Atualize as informações cadastrais e status operacional da unidade."
-      >
-        <form onSubmit={handleUpdateUnit} className="space-y-4">
-          {editUnitError && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
-              <span>{editUnitError}</span>
-            </div>
-          )}
-
-          {editUnitSuccess && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-700 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-              <span>{editUnitSuccess}</span>
-            </div>
-          )}
-
-          <Input
-            label="Nome da Unidade / Núcleo *"
-            value={editUnitName}
-            onChange={(e) => setEditUnitName(e.target.value)}
-            required
-          />
-
-          <div>
-            <label className="text-xs font-semibold text-[#393C41] block mb-1">
-              Macrorregional de Saúde *
-            </label>
-            <select
-              value={editMacroregion}
-              onChange={(e) => setEditMacroregion(e.target.value)}
-              className="w-full h-9 px-3 text-xs bg-white border border-[#D1D5DB] rounded focus:outline-none"
-              required
-            >
-              <option value="Macrorregional Norte">Macrorregional Norte</option>
-              <option value="Macrorregional Centro-Leste">Macrorregional Centro-Leste</option>
-              <option value="Macrorregional Sudoeste">Macrorregional Sudoeste</option>
-              <option value="Macrorregional Leste">Macrorregional Leste</option>
-              <option value="Macrorregional Oeste">Macrorregional Oeste</option>
-              <option value="Macrorregional Sul">Macrorregional Sul</option>
-              <option value="Macrorregional Extremo-Sul">Macrorregional Extremo-Sul</option>
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input
-              label="Município-Sede"
-              value={editMunicipality}
-              onChange={(e) => setEditMunicipality(e.target.value)}
-            />
-            <Input
-              label="Código CNES"
-              value={editCnes}
-              onChange={(e) => setEditCnes(e.target.value)}
-            />
-          </div>
-
-          <div className="flex items-center gap-2 pt-1">
-            <input
-              type="checkbox"
-              id="editUnitActive"
-              checked={editUnitActive}
-              onChange={(e) => setEditUnitActive(e.target.checked)}
-              className="w-4 h-4 rounded text-[#171A20] focus:ring-[#171A20]"
-            />
-            <label htmlFor="editUnitActive" className="text-xs font-semibold text-[#393C41] cursor-pointer">
-              Unidade Ativa no Sistema
-            </label>
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#F0F1F3]">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsEditUnitModalOpen(false)}
-              disabled={editUnitLoading}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              disabled={editUnitLoading}
-            >
-              {editUnitLoading ? "Salvando no Supabase..." : "Salvar Alterações"}
-            </Button>
-          </div>
-        </form>
-      </Dialog>
-
-      {/* Modal Novo Usuário (Restrito à Administração) */}
-      <Dialog
-        open={isUserModalOpen}
-        onOpenChange={setIsUserModalOpen}
-        title="Cadastrar Novo Profissional / Usuário"
-        description="Credencie um farmacêutico clínico ou gestor estadual no sistema oficial."
-        maxWidth="md"
-      >
-        <form onSubmit={handleSaveUser} className="space-y-4">
-          {userError && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
-              <span>{userError}</span>
-            </div>
-          )}
-
-          {userSuccess && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-700 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-              <span>{userSuccess}</span>
-            </div>
-          )}
-
-          <div>
-            <label className="text-xs font-semibold text-[#393C41] block mb-1">
-              Nome Completo do Profissional (com Título) *
-            </label>
-            <Input
-              placeholder="Ex: Dra. Mariana Costa"
-              value={userName}
-              onChange={(e) => setUserName(e.target.value)}
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {/* ========================================================================= */}
+      {/* ABA 4: ORIGENS DE DEMANDA */}
+      {/* ========================================================================= */}
+      {activeMainTab === "origens" && (
+        <Card>
+          <CardHeader className="p-4 border-b border-slate-100 flex flex-row items-center justify-between">
             <div>
-              <label className="text-xs font-semibold text-[#393C41] block mb-1">
-                E-mail Institucional *
-              </label>
-              <Input
-                type="email"
-                placeholder="nome@saude.ba.gov.br"
-                value={userEmail}
-                onChange={(e) => setUserEmail(e.target.value)}
-                required
-              />
+              <CardTitle className="text-base font-semibold text-slate-800">
+                Origens da Demanda Administrativa & Judicial
+              </CardTitle>
+              <CardDescription className="text-xs text-slate-500">
+                Entidades e órgãos que protocolam solicitações e mandados de medicamentos no sistema.
+              </CardDescription>
             </div>
-
-            <div>
-              <label className="text-xs font-semibold text-[#393C41] block mb-1">
-                CRF (Obrigatório para Farmacêutico)
-              </label>
-              <Input
-                placeholder="Ex: CRF-BA 9540"
-                value={userCrf}
-                onChange={(e) => setUserCrf(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-[#393C41] block mb-1">
-              Senha de Acesso Provisória *
-            </label>
-            <Input
-              type="text"
-              placeholder="Mínimo 6 caracteres"
-              value={userPassword}
-              onChange={(e) => setUserPassword(e.target.value)}
-              required
-            />
-            <p className="text-[10px] text-[#5C5E62] mt-1">
-              O profissional poderá utilizar esta senha para seu primeiro acesso ao sistema.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-[#393C41] block mb-1">
-                Perfil de Acesso (Role) *
-              </label>
-              <select
-                value={userRole}
-                onChange={(e) => setUserRole(e.target.value as Role)}
-                className="w-full h-9 px-3 text-xs bg-white border border-[#D1D5DB] rounded focus:outline-none"
+            {isGestor && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => handleOpenOrigem()}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5"
               >
-                <option value="pharmacist">Farmacêutico Clínico</option>
-                <option value="admin">Administrador Geral</option>
-                <option value="viewer">Visualizador / Auditoria</option>
-              </select>
+                <Plus className="h-3.5 w-3.5" />
+                Nova Origem
+              </Button>
+            )}
+          </CardHeader>
+          <CardContent className="p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              {origens.map((o) => (
+                <div
+                  key={o.id}
+                  className="p-3 bg-white border border-slate-200 rounded-lg flex items-center justify-between"
+                >
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-900">{o.name}</span>
+                      {o.sigla && (
+                        <Badge variant="outline" className="text-[10px] bg-slate-50 font-mono">
+                          {o.sigla}
+                        </Badge>
+                      )}
+                    </div>
+                    {o.description && (
+                      <p className="text-[11px] text-slate-500">{o.description}</p>
+                    )}
+                  </div>
+
+                  {isGestor && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleOpenOrigem(o)}
+                      className="h-8 w-8 p-0 text-slate-500 hover:text-slate-800"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              ))}
             </div>
+          </CardContent>
+        </Card>
+      )}
 
-            <div>
-              <label className="text-xs font-semibold text-[#393C41] block mb-1">
-                Unidade de Lotação *
-              </label>
-              <select
-                value={userUnitId}
-                onChange={(e) => setUserUnitId(e.target.value)}
-                className="w-full h-9 px-3 text-xs bg-white border border-[#D1D5DB] rounded focus:outline-none"
-              >
-                {userRole === "admin" && (
-                  <option value="general">Acesso Geral Macrorregional (Sem unidade fixa)</option>
-                )}
-                {units.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#F0F1F3]">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsUserModalOpen(false)}
-              disabled={userLoading}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              disabled={userLoading}
-            >
-              {userLoading ? "Cadastrando no Supabase..." : "Concluir Cadastro"}
-            </Button>
-          </div>
-        </form>
-      </Dialog>
-
-      {/* Modal Editar Usuário (Restrito à Administração) */}
-      <Dialog
-        open={isEditUserModalOpen}
-        onOpenChange={setIsEditUserModalOpen}
-        title="Editar Dados do Profissional"
-        description="Atualize nome, e-mail institucional, lotação, perfil e senha de acesso."
-        maxWidth="md"
-      >
-        <form onSubmit={handleUpdateUser} className="space-y-4">
-          {editUserError && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
-              <span>{editUserError}</span>
-            </div>
-          )}
-
-          {editUserSuccess && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-700 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-              <span>{editUserSuccess}</span>
-            </div>
-          )}
-
-          <div>
-            <label className="text-xs font-semibold text-[#393C41] block mb-1">
-              Nome Completo do Profissional (com Título) *
-            </label>
-            <Input
-              value={editUserName}
-              onChange={(e) => setEditUserName(e.target.value)}
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-[#393C41] block mb-1">
-                E-mail Institucional *
-              </label>
-              <Input
-                type="email"
-                value={editUserEmail}
-                onChange={(e) => setEditUserEmail(e.target.value)}
-                required
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-[#393C41] block mb-1">
-                CRF
-              </label>
-              <Input
-                value={editUserCrf}
-                onChange={(e) => setEditUserCrf(e.target.value)}
-                placeholder="Ex: CRF-BA 9540"
-              />
-            </div>
-          </div>
-
-          <div className="p-3 bg-[#F4F4F6] border border-[#E5E7EB] rounded-lg space-y-2">
-            <div className="flex items-center gap-2">
-              <KeyRound className="w-4 h-4 text-[#171A20]" />
-              <label className="text-xs font-semibold text-[#171A20]">
-                Redefinir Senha de Acesso (Opcional)
-              </label>
-            </div>
-            <Input
-              type="text"
-              placeholder="Deixe em branco para manter a senha atual"
-              value={editUserPassword}
-              onChange={(e) => setEditUserPassword(e.target.value)}
-            />
-            <p className="text-[10px] text-[#5C5E62]">
-              Caso o profissional tenha esquecido a senha, digite uma nova senha aqui para redefini-la imediatamente.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-[#393C41] block mb-1">
-                Perfil de Acesso (Role) *
-              </label>
-              <select
-                value={editUserRole}
-                onChange={(e) => setEditUserRole(e.target.value as Role)}
-                className="w-full h-9 px-3 text-xs bg-white border border-[#D1D5DB] rounded focus:outline-none"
-              >
-                <option value="pharmacist">Farmacêutico Clínico</option>
-                <option value="admin">Administrador Geral</option>
-                <option value="viewer">Visualizador / Auditoria</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-[#393C41] block mb-1">
-                Unidade de Lotação *
-              </label>
-              <select
-                value={editUserUnitId}
-                onChange={(e) => setEditUserUnitId(e.target.value)}
-                className="w-full h-9 px-3 text-xs bg-white border border-[#D1D5DB] rounded focus:outline-none"
-              >
-                {editUserRole === "admin" && (
-                  <option value="general">Acesso Geral Macrorregional (Sem unidade fixa)</option>
-                )}
-                {units.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Status do Usuário: Ativo / Inativo */}
-          <div className="p-3 bg-[#F4F4F6] border border-[#E5E7EB] rounded-lg flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-1.5">
-                {editUserActive ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                ) : (
-                  <UserX className="w-4 h-4 text-red-600" />
-                )}
-                <label className="text-xs font-semibold text-[#171A20] block">
-                  Status de Atividade: {editUserActive ? "Conta Ativa" : "Conta Inativada"}
-                </label>
+      {/* ========================================================================= */}
+      {/* MODAL: NOVA / EDITAR BASE REGIONAL / UNIDADE */}
+      {/* ========================================================================= */}
+      {isUnitModalOpen && (
+        <Dialog
+          open={true}
+          onOpenChange={() => setIsUnitModalOpen(false)}
+          title={isEditingUnit ? "Editar Base Regional / Unidade" : "Nova Base Regional / Unidade"}
+          description="Informe os dados cadastrais, contatos e macrorregião da unidade."
+          maxWidth="md"
+        >
+          <form onSubmit={handleSaveUnit} className="space-y-3">
+            {unitError && (
+              <div className="p-2 bg-rose-50 border border-rose-200 rounded text-xs text-rose-700">
+                {unitError}
               </div>
-              <p className="text-[11px] text-[#5C5E62] mt-0.5">
-                {editUserActive
-                  ? "O profissional possui acesso permitido e pode autenticar no sistema."
-                  : "Acesso bloqueado: o usuário não conseguirá realizar login."}
-              </p>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Nome da Base Regional / Unidade *
+              </label>
+              <Input
+                value={unitName}
+                onChange={(e) => setUnitName(e.target.value)}
+                placeholder="Ex: Base Regional de Saúde Feira de Santana"
+                required
+                className="text-xs"
+              />
             </div>
-            <div className="flex items-center gap-2">
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Macrorregião de Saúde *
+                </label>
+                <select
+                  value={unitMacroregion}
+                  onChange={(e) => setUnitMacroregion(e.target.value)}
+                  className="w-full text-xs p-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  {BAHIA_MACRORREGIOES.map((macro) => (
+                    <option key={macro} value={macro}>
+                      {macro}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Município-Sede
+                </label>
+                <Input
+                  value={unitMunicipality}
+                  onChange={(e) => setUnitMunicipality(e.target.value)}
+                  placeholder="Ex: Feira de Santana"
+                  className="text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Código CNES
+                </label>
+                <Input
+                  value={unitCnes}
+                  onChange={(e) => setUnitCnes(e.target.value)}
+                  placeholder="Ex: 2605847"
+                  className="text-xs font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Telefone Institucional
+                </label>
+                <Input
+                  value={unitPhone}
+                  onChange={(e) => setUnitPhone(e.target.value)}
+                  placeholder="(75) 3602-5500"
+                  className="text-xs"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                E-mail Institucional
+              </label>
+              <Input
+                type="email"
+                value={unitEmail}
+                onChange={(e) => setUnitEmail(e.target.value)}
+                placeholder="brs.unidade@saude.ba.gov.br"
+                className="text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Endereço Físico
+              </label>
+              <Input
+                value={unitAddress}
+                onChange={(e) => setUnitAddress(e.target.value)}
+                placeholder="Av. Exemplo, 1200 - Bairro, Cidade - BA"
+                className="text-xs"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsUnitModalOpen(false)}
+                className="text-xs"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={unitLoading}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+              >
+                {unitLoading ? "Salvando..." : "Salvar Unidade"}
+              </Button>
+            </div>
+          </form>
+        </Dialog>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: GERENCIAR FARMACÊUTICOS DA BASE */}
+      {/* ========================================================================= */}
+      {isPharmacistModalOpen && activeUnitForPharm && (
+        <Dialog
+          open={true}
+          onOpenChange={() => setIsPharmacistModalOpen(false)}
+          title={`Equipe Farmacêutica: ${activeUnitForPharm.name}`}
+          description="Cadastre os farmacêuticos responsáveis técnicos com número de CRF, telefone e e-mail."
+          maxWidth="lg"
+        >
+          <div className="space-y-4">
+            {/* Formulário Novo Farmacêutico */}
+            <form onSubmit={handleAddPharmacist} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+              <span className="font-semibold text-xs text-slate-800 block">
+                Adicionar Farmacêutico à Unidade
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Nome Completo *
+                  </label>
+                  <Input
+                    value={newPharmName}
+                    onChange={(e) => setNewPharmName(e.target.value)}
+                    placeholder="Dr(a). Nome do Farmacêutico"
+                    required
+                    className="text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Número do CRF *
+                  </label>
+                  <Input
+                    value={newPharmCrf}
+                    onChange={(e) => setNewPharmCrf(e.target.value)}
+                    placeholder="CRF-BA 1234"
+                    required
+                    className="text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Telefone de Contato
+                  </label>
+                  <Input
+                    value={newPharmPhone}
+                    onChange={(e) => setNewPharmPhone(e.target.value)}
+                    placeholder="(71) 99999-0000"
+                    className="text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    E-mail Institucional
+                  </label>
+                  <Input
+                    type="email"
+                    value={newPharmEmail}
+                    onChange={(e) => setNewPharmEmail(e.target.value)}
+                    placeholder="farmaceutico@saude.ba.gov.br"
+                    className="text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newPharmIsRt}
+                    onChange={(e) => setNewPharmIsRt(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <span>Responsável Técnico (RT Titular da Unidade)</span>
+                </label>
+
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Vincular Farmacêutico
+                </Button>
+              </div>
+            </form>
+
+            {/* Lista dos Farmacêuticos Atuais */}
+            <div className="space-y-2">
+              <span className="font-semibold text-xs text-slate-700 block">
+                Farmacêuticos Vinculados ({activeUnitForPharm.responsible_pharmacists?.length || 0})
+              </span>
+
+              {(!activeUnitForPharm.responsible_pharmacists || activeUnitForPharm.responsible_pharmacists.length === 0) ? (
+                <p className="text-xs text-slate-400 py-3 text-center border border-dashed rounded">
+                  Nenhum farmacêutico cadastrado nesta base.
+                </p>
+              ) : (
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {activeUnitForPharm.responsible_pharmacists.map((p) => (
+                    <div
+                      key={p.id}
+                      className="p-2.5 bg-white border border-slate-200 rounded-lg flex items-center justify-between text-xs"
+                    >
+                      <div>
+                        <div className="font-semibold text-slate-900 flex items-center gap-2">
+                          <span>{p.full_name}</span>
+                          <span className="font-mono text-slate-500">({p.crf})</span>
+                          {p.is_technical_lead && (
+                            <Badge className="text-[8px] bg-emerald-600 text-white">
+                              RT
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          {p.phone && <span>Tel: {p.phone} • </span>}
+                          {p.email && <span>E-mail: {p.email}</span>}
+                        </div>
+                      </div>
+
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRemovePharmacist(p.id)}
+                        className="text-rose-600 hover:text-rose-800 hover:bg-rose-50 h-7 w-7 p-0"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-2 border-t">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={currentUser?.id === editingUserId}
-                onClick={() => setEditUserActive(!editUserActive)}
-                className={`h-7 px-2.5 text-xs font-medium ${
-                  editUserActive
-                    ? "text-red-700 hover:text-red-800 hover:bg-red-50 border-red-200"
-                    : "text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-200"
-                }`}
+                onClick={() => setIsPharmacistModalOpen(false)}
+                className="text-xs"
               >
-                {editUserActive ? (
-                  <>
-                    <UserX className="w-3.5 h-3.5 mr-1 text-red-600" />
-                    Inativar Usuário
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-                    Reativar Usuário
-                  </>
-                )}
+                Concluir
               </Button>
             </div>
           </div>
-          {currentUser?.id === editingUserId && (
-            <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded border border-amber-200">
-              Você está conectado com este perfil e não pode inativar seu próprio acesso.
-            </p>
-          )}
+        </Dialog>
+      )}
 
-          <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#F0F1F3]">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsEditUserModalOpen(false)}
-              disabled={editUserLoading}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              disabled={editUserLoading}
-            >
-              {editUserLoading ? "Salvando no Supabase..." : "Salvar Alterações"}
-            </Button>
+      {/* ========================================================================= */}
+      {/* MODAL: GERENCIAR MUNICÍPIOS ABRANGIDOS DA BASE */}
+      {/* ========================================================================= */}
+      {isMunicipalitiesModalOpen && activeUnitForMuns && (
+        <Dialog
+          open={true}
+          onOpenChange={() => setIsMunicipalitiesModalOpen(false)}
+          title={`Municípios Jurisdicionados: ${activeUnitForMuns.name}`}
+          description="Vincule ou remova municípios sob responsabilidade desta Base Regional."
+          maxWidth="lg"
+        >
+          <div className="space-y-4">
+            {/* Vincular novo município */}
+            <div className="flex gap-2">
+              <select
+                value={selectedMunIdToAdd}
+                onChange={(e) => setSelectedMunIdToAdd(e.target.value)}
+                className="flex-1 text-xs p-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="">Selecione um município da Bahia para vincular...</option>
+                {municipios
+                  .slice()
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} - BA ({m.brs_name ? `Atual: BRS ${m.brs_name}` : "Sem BRS"})
+                    </option>
+                  ))}
+              </select>
+
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleAddMunicipality}
+                disabled={!selectedMunIdToAdd}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Vincular
+              </Button>
+            </div>
+
+            {/* Lista dos Municípios Atuais */}
+            <div className="space-y-2">
+              <span className="font-semibold text-xs text-slate-700 block">
+                Municípios Atendidos por esta Base ({unitMunicipalitiesMap[activeUnitForMuns.id]?.length || 0})
+              </span>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-72 overflow-y-auto p-1 border rounded-lg bg-slate-50">
+                {(unitMunicipalitiesMap[activeUnitForMuns.id] || []).map((m) => (
+                  <div
+                    key={m.id}
+                    className="p-2 bg-white rounded border border-slate-200 text-xs flex items-center justify-between gap-1"
+                  >
+                    <span className="font-medium text-slate-800 truncate">{m.name}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRemoveMunicipality(m.id)}
+                      className="text-slate-400 hover:text-rose-600 h-6 w-6 p-0"
+                      title="Desvincular"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsMunicipalitiesModalOpen(false)}
+                className="text-xs"
+              >
+                Fechar
+              </Button>
+            </div>
           </div>
-        </form>
-      </Dialog>
+        </Dialog>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: EDITAR MUNICÍPIO */}
+      {/* ========================================================================= */}
+      {isMunEditModalOpen && editingMun && (
+        <Dialog
+          open={true}
+          onOpenChange={() => setIsMunEditModalOpen(false)}
+          title={`Editar Município: ${editingMun.name}`}
+          description="Altere a Base Regional (BRS) de vínculo ou dados do município."
+          maxWidth="md"
+        >
+          <form onSubmit={handleSaveEditMun} className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Nome do Município *
+              </label>
+              <Input
+                value={editMunName}
+                onChange={(e) => setEditMunName(e.target.value)}
+                required
+                className="text-xs"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Código IBGE
+                </label>
+                <Input
+                  value={editMunIbge}
+                  onChange={(e) => setEditMunIbge(e.target.value)}
+                  className="text-xs font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Farmacêutico RT / Equipe
+                </label>
+                <div className="text-xs p-2 rounded-md bg-slate-50 border border-slate-200 text-slate-700 flex items-center gap-1.5 font-medium truncate">
+                  <Stethoscope className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
+                  <span className="truncate">{editingMun?.responsible_pharmacist || "Equipe da Base Regional"}</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Base Regional (BRS) Vinculada *
+              </label>
+              <select
+                value={editMunBrsName}
+                onChange={(e) => setEditMunBrsName(e.target.value)}
+                className="w-full text-xs p-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+              >
+                <option value="">Selecione a BRS de referência...</option>
+                {BAHIA_BRS.map((b) => (
+                  <option key={b.id} value={b.name.replace(/^BRS\s+/i, "")}>
+                    {b.name} ({b.macroregion})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsMunEditModalOpen(false)}
+                className="text-xs"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+              >
+                Salvar Alterações
+              </Button>
+            </div>
+          </form>
+        </Dialog>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: NOVA / EDITAR ORIGEM */}
+      {/* ========================================================================= */}
+      {isOrigemModalOpen && (
+        <Dialog
+          open={true}
+          onOpenChange={() => setIsOrigemModalOpen(false)}
+          title={editingOrigem ? "Editar Origem de Demanda" : "Nova Origem de Demanda"}
+          description="Cadastre órgãos ou canais oficiais que originam processos no CimBahia."
+          maxWidth="md"
+        >
+          <form onSubmit={handleSaveOrigem} className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Nome da Origem / Entidade *
+              </label>
+              <Input
+                value={origemName}
+                onChange={(e) => setOrigemName(e.target.value)}
+                placeholder="Ex: Tribunal de Justiça da Bahia"
+                required
+                className="text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Sigla de Identificação
+              </label>
+              <Input
+                value={origemSigla}
+                onChange={(e) => setOrigemSigla(e.target.value)}
+                placeholder="Ex: TJ-BA"
+                className="text-xs font-mono uppercase"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Descrição e Finalidade
+              </label>
+              <textarea
+                rows={3}
+                value={origemDesc}
+                onChange={(e) => setOrigemDesc(e.target.value)}
+                placeholder="Descrição dos tipos de processos encaminhados por este órgão..."
+                className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsOrigemModalOpen(false)}
+                className="text-xs"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+              >
+                Salvar Origem
+              </Button>
+            </div>
+          </form>
+        </Dialog>
+      )}
     </div>
   );
 }
