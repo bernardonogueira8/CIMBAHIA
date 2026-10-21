@@ -405,35 +405,63 @@ ALTER TABLE public.cb_parecer_versoes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cb_processo_historico ENABLE ROW LEVEL SECURITY;
 
 -- Políticas de Leitura
+DROP POLICY IF EXISTS "Permitir leitura cb_origens" ON public.cb_origens;
 CREATE POLICY "Permitir leitura cb_origens" ON public.cb_origens FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_nucleos" ON public.cb_nucleos;
 CREATE POLICY "Permitir leitura cb_nucleos" ON public.cb_nucleos FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_dires" ON public.cb_dires;
 CREATE POLICY "Permitir leitura cb_dires" ON public.cb_dires FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_bases" ON public.cb_bases_regionais;
 CREATE POLICY "Permitir leitura cb_bases" ON public.cb_bases_regionais FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_municipios" ON public.cb_municipios;
 CREATE POLICY "Permitir leitura cb_municipios" ON public.cb_municipios FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_units" ON public.cb_units;
 CREATE POLICY "Permitir leitura cb_units" ON public.cb_units FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_unit_served_municipalities" ON public.cb_unit_served_municipalities;
 CREATE POLICY "Permitir leitura cb_unit_served_municipalities" ON public.cb_unit_served_municipalities FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_unit_responsible_pharmacists" ON public.cb_unit_responsible_pharmacists;
 CREATE POLICY "Permitir leitura cb_unit_responsible_pharmacists" ON public.cb_unit_responsible_pharmacists FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_profiles" ON public.cb_profiles;
 CREATE POLICY "Permitir leitura cb_profiles" ON public.cb_profiles FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_other_medications" ON public.cb_other_medications;
 CREATE POLICY "Permitir leitura cb_other_medications" ON public.cb_other_medications FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_tipos_parecer" ON public.cb_tipos_parecer;
 CREATE POLICY "Permitir leitura cb_tipos_parecer" ON public.cb_tipos_parecer FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_patients" ON public.cb_patients;
 CREATE POLICY "Permitir leitura cb_patients" ON public.cb_patients FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_processos" ON public.cb_processos;
 CREATE POLICY "Permitir leitura cb_processos" ON public.cb_processos FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_processo_items" ON public.cb_processo_items;
 CREATE POLICY "Permitir leitura cb_processo_items" ON public.cb_processo_items FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_pareceres" ON public.cb_pareceres;
 CREATE POLICY "Permitir leitura cb_pareceres" ON public.cb_pareceres FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_parecer_versoes" ON public.cb_parecer_versoes;
 CREATE POLICY "Permitir leitura cb_parecer_versoes" ON public.cb_parecer_versoes FOR SELECT TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir leitura cb_processo_historico" ON public.cb_processo_historico;
 CREATE POLICY "Permitir leitura cb_processo_historico" ON public.cb_processo_historico FOR SELECT TO authenticated, anon USING (true);
 
 -- Políticas de Escrita
+DROP POLICY IF EXISTS "Permitir escrita cb_patients" ON public.cb_patients;
 CREATE POLICY "Permitir escrita cb_patients" ON public.cb_patients FOR ALL TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir escrita cb_processos" ON public.cb_processos;
 CREATE POLICY "Permitir escrita cb_processos" ON public.cb_processos FOR ALL TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir escrita cb_processo_items" ON public.cb_processo_items;
 CREATE POLICY "Permitir escrita cb_processo_items" ON public.cb_processo_items FOR ALL TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir escrita cb_pareceres" ON public.cb_pareceres;
 CREATE POLICY "Permitir escrita cb_pareceres" ON public.cb_pareceres FOR ALL TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir escrita cb_parecer_versoes" ON public.cb_parecer_versoes;
 CREATE POLICY "Permitir escrita cb_parecer_versoes" ON public.cb_parecer_versoes FOR ALL TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir escrita cb_processo_historico" ON public.cb_processo_historico;
 CREATE POLICY "Permitir escrita cb_processo_historico" ON public.cb_processo_historico FOR ALL TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir escrita cb_profiles" ON public.cb_profiles;
 CREATE POLICY "Permitir escrita cb_profiles" ON public.cb_profiles FOR ALL TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir escrita cb_other_medications" ON public.cb_other_medications;
 CREATE POLICY "Permitir escrita cb_other_medications" ON public.cb_other_medications FOR ALL TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir escrita cb_tipos_parecer" ON public.cb_tipos_parecer;
 CREATE POLICY "Permitir escrita cb_tipos_parecer" ON public.cb_tipos_parecer FOR ALL TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir escrita cb_units" ON public.cb_units;
 CREATE POLICY "Permitir escrita cb_units" ON public.cb_units FOR ALL TO authenticated, anon USING (true);
+DROP POLICY IF EXISTS "Permitir escrita cb_origens" ON public.cb_origens;
 CREATE POLICY "Permitir escrita cb_origens" ON public.cb_origens FOR ALL TO authenticated, anon USING (true);
 
 -- ==============================================================================
