@@ -21,11 +21,12 @@ export function Header() {
     activeUnit,
     canEdit,
     isAuthenticated,
+    authChecked,
     logout,
   } = useApp();
 
-  // Nas páginas de autenticação ou se não logado, o cabeçalho não é renderizado
-  if (pathname === "/" || pathname === "/login" || !isAuthenticated || !currentUser) {
+  // Nas páginas de autenticação, enquanto valida a sessão, ou se não autenticado, o cabeçalho não é renderizado
+  if (!authChecked || pathname === "/" || pathname === "/login" || !isAuthenticated || !currentUser) {
     return null;
   }
 

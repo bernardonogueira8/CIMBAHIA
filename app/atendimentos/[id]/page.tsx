@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, Suspense } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -147,7 +147,7 @@ const CIMBAHIA_COMBO_PRECEDENTS: PrecedentTemplate[] = [
   },
 ];
 
-export default function DetalhesProcessoPage() {
+function DetalhesProcessoContent() {
   const params = useParams();
   const router = useRouter();
   const processoId = params?.id as string;
@@ -211,8 +211,8 @@ export default function DetalhesProcessoPage() {
       setSelectedTipoParecerId(processo.parecer.active_version.tipo_parecer_id || "");
       setConsolidatedJustification(
         processo.parecer.active_version.technical_justification ||
-          processo.parecer.active_version.clinical_foundation ||
-          ""
+        processo.parecer.active_version.clinical_foundation ||
+        ""
       );
       setConsolidatedRecommendations(
         processo.parecer.active_version.recommendations || ""
@@ -386,8 +386,8 @@ export default function DetalhesProcessoPage() {
           if (matchesFarmaco && matchesCid) {
             const isSamePat = Boolean(
               pacienteId &&
-                (p.paciente_id === pacienteId ||
-                  (processo.paciente?.cpf && p.paciente?.cpf === processo.paciente.cpf))
+              (p.paciente_id === pacienteId ||
+                (processo.paciente?.cpf && p.paciente?.cpf === processo.paciente.cpf))
             );
 
             const just =
@@ -399,25 +399,25 @@ export default function DetalhesProcessoPage() {
             const regEffect = p.parecer?.active_version?.regulatory_effect as string | undefined;
             const rawStatus: "deferido" | "indeferido" | "em_exigencia" | "deferido_parcial" =
               it.status === "deferido" ||
-              it.status === "indeferido" ||
-              it.status === "em_exigencia" ||
-              it.status === "deferido_parcial"
+                it.status === "indeferido" ||
+                it.status === "em_exigencia" ||
+                it.status === "deferido_parcial"
                 ? it.status
                 : regEffect === "deferido"
-                ? "deferido"
-                : regEffect === "indeferido"
-                ? "indeferido"
-                : regEffect === "exigencia" || regEffect === "em_exigencia"
-                ? "em_exigencia"
-                : regEffect === "deferido_parcial"
-                ? "deferido_parcial"
-                : p.status.includes("deferido")
-                ? "deferido"
-                : p.status.includes("indeferido")
-                ? "indeferido"
-                : p.status === "em_exigencia"
-                ? "em_exigencia"
-                : "deferido";
+                  ? "deferido"
+                  : regEffect === "indeferido"
+                    ? "indeferido"
+                    : regEffect === "exigencia" || regEffect === "em_exigencia"
+                      ? "em_exigencia"
+                      : regEffect === "deferido_parcial"
+                        ? "deferido_parcial"
+                        : p.status.includes("deferido")
+                          ? "deferido"
+                          : p.status.includes("indeferido")
+                            ? "indeferido"
+                            : p.status === "em_exigencia"
+                              ? "em_exigencia"
+                              : "deferido";
 
             decisions.push({
               id: `proc-${p.id}-${it.id}`,
@@ -600,18 +600,12 @@ export default function DetalhesProcessoPage() {
       conclusaoGeral = "DEFERIMENTO PARCIAL";
     }
 
-    let texto = `PARECER TÉCNICO FARMACÊUTICO CONSOLIDADO - SESAB / CIMBAHIA\n`;
-    texto += `PROCESSO SEI: ${processo.numero_sei}\n`;
-    texto += `PACIENTE: ${processo.paciente?.full_name || "NÃO INFORMADO"} (CPF: ${
-      processo.paciente?.cpf_not_provided ? "NÃO INFORMADO" : processo.paciente?.cpf || "N/I"
-    })\n`;
-    texto += `MUNICÍPIO / BRS: ${processo.municipio?.name || "BAHIA"} / ${
-      processo.unidade?.name || "BASE REGIONAL"
-    }\n`;
-    texto += `ORIGEM: ${processo.origem?.name || "DEMANDA ADMINISTRATIVA"}\n`;
-    texto += `--------------------------------------------------------------------------------\n\n`;
-    texto += `1. ANÁLISE INDIVIDUALIZADA POR FÁRMACO E DIAGNÓSTICO (CID-10):\n\n`;
-
+    let texto = `PROCESSO SEI N° ${processo.numero_sei}\n`;
+    texto += `PACIENTE: ${processo.paciente?.full_name || "NÃO INFORMADO"} (CPF: ${processo.paciente?.cpf_not_provided ? "NÃO INFORMADO" : processo.paciente?.cpf || "N/I"
+      })\n`;
+    texto += `Medicamentos: ${itemsState.map((it) => it.medication_name).join(", ")}\n`;
+    texto += `\n\nPrezados(as),\n\n`;
+    texto += `Em atenção ao processo em tela, referente ao fornecimento de medicamentos em favor da paciente ${processo.paciente?.full_name || "NÃO INFORMADO"}, que tem diagnóstico de ${itemsState.map((it) => it.cid_code).join(", ")}, temos a informar:\n\n`;
     itemsState.forEach((it, idx) => {
       const nome = it.farmaco_substancia || it.medication_name;
       const cid = it.cid_nao_informado ? "N/I (Investigação Diagnóstica)" : `${it.cid_code} - ${it.cid_description}`;
@@ -619,37 +613,40 @@ export default function DetalhesProcessoPage() {
         it.status === "deferido"
           ? "DEFERIDO"
           : it.status === "indeferido"
-          ? "INDEFERIDO"
-          : it.status === "em_exigencia"
-          ? "EM EXIGÊNCIA"
-          : it.status === "deferido_parcial"
-          ? "DEFERIDO PARCIAL"
-          : "PENDENTE DE AVALIAÇÃO";
+            ? "INDEFERIDO"
+            : it.status === "em_exigencia"
+              ? "EM EXIGÊNCIA"
+              : it.status === "deferido_parcial"
+                ? "DEFERIDO PARCIAL"
+                : "PENDENTE DE AVALIAÇÃO";
 
-      texto += `Item ${idx + 1}: Fármaco/Substância: ${nome}\n`;
+      texto += `Item ${idx + 1}: ${nome}\n`;
       texto += `Diagnóstico: CID-10 ${cid}\n`;
       if (it.posology || it.monthly_quantity) {
         texto += `Posologia prescrita: ${it.posology || "Conforme receita"}${it.monthly_quantity ? ` | Qtd Mensal: ${it.monthly_quantity}` : ""}\n`;
       }
       texto += `Conclusão do Item: [${statusLabel}]\n`;
-      texto += `Fundamentação Técnica: ${
-        it.justification || "Avaliação clínica em conformidade com as diretrizes e protocolos vigentes."
-      }\n\n`;
+      texto += `Fundamentação Técnica: ${it.justification || "Avaliação clínica em conformidade com as diretrizes e protocolos vigentes."
+        }\n\n`;
     });
 
-    texto += `--------------------------------------------------------------------------------\n`;
-    texto += `2. CONCLUSÃO REGULATÓRIA CONSOLIDADA:\n`;
-    texto += `Diante do exame documental e técnico, opina-se pelo [${conclusaoGeral}] da demanda nos termos detalhados acima.\n`;
+    texto += `Diante do exame documental e técnico, opina-se pelo [${conclusaoGeral}] da demanda nos termos detalhados acima.\n\nCertos da compreensão, prosseguimos à disposição para outros esclarecimentos.\n\nAtenciosamente,`;
 
     setConsolidatedJustification(texto);
 
-    // Sugere tipo de parecer compatível
-    if (tiposParecer.length > 0 && !selectedTipoParecerId) {
+    // Seleciona automaticamente tipo de parecer compatível no backend
+    if (tiposParecer.length > 0) {
       if (conclusaoGeral.includes("DEFERIMENTO INTEGRAL")) {
         const tp = tiposParecer.find((t) => t.regulatory_effect === "deferido");
         if (tp) setSelectedTipoParecerId(tp.id);
       } else if (conclusaoGeral.includes("INDEFERIMENTO")) {
         const tp = tiposParecer.find((t) => t.regulatory_effect === "indeferido");
+        if (tp) setSelectedTipoParecerId(tp.id);
+      } else if (conclusaoGeral.includes("EXIGÊNCIA")) {
+        const tp = tiposParecer.find((t) => t.regulatory_effect === "exigencia");
+        if (tp) setSelectedTipoParecerId(tp.id);
+      } else if (conclusaoGeral.includes("PARCIAL")) {
+        const tp = tiposParecer.find((t) => t.regulatory_effect === "deferido_parcial");
         if (tp) setSelectedTipoParecerId(tp.id);
       }
     }
@@ -662,10 +659,29 @@ export default function DetalhesProcessoPage() {
       return;
     }
 
-    const tp = tiposParecer.find((t) => t.id === selectedTipoParecerId) || {
-      id: "tp-default",
-      title: "Parecer Técnico Farmacêutico Oficial",
-      regulatory_effect: "deferido" as const,
+    const foundTp = tiposParecer.find((t) => t.id === selectedTipoParecerId);
+    let resolvedTp = foundTp;
+
+    if (!resolvedTp && tiposParecer.length > 0) {
+      const deferidos = itemsState.filter((it) => it.status === "deferido").length;
+      const indeferidos = itemsState.filter((it) => it.status === "indeferido").length;
+      const exigencias = itemsState.filter((it) => it.status === "em_exigencia").length;
+
+      if (indeferidos === itemsState.length && itemsState.length > 0) {
+        resolvedTp = tiposParecer.find((t) => t.regulatory_effect === "indeferido");
+      } else if (exigencias > 0) {
+        resolvedTp = tiposParecer.find((t) => t.regulatory_effect === "exigencia");
+      } else if (deferidos > 0 && indeferidos > 0) {
+        resolvedTp = tiposParecer.find((t) => t.regulatory_effect === "deferido_parcial");
+      } else {
+        resolvedTp = tiposParecer.find((t) => t.regulatory_effect === "deferido");
+      }
+    }
+
+    const tp = {
+      id: resolvedTp?.id || "tp-default",
+      title: resolvedTp?.title || "Parecer Técnico Farmacêutico Oficial",
+      regulatory_effect: resolvedTp?.regulatory_effect || ("deferido" as const),
     };
 
     setIsSubmitting(true);
@@ -683,8 +699,7 @@ export default function DetalhesProcessoPage() {
       await transicionarProcessoStatus(
         processo.id,
         "concluido",
-        `Parecer consolidado emitido e processo concluído por ${
-          currentUser?.full_name || "Farmacêutico"
+        `Parecer consolidado emitido e processo concluído por ${currentUser?.full_name || "Farmacêutico"
         }`
       );
 
@@ -753,23 +768,22 @@ export default function DetalhesProcessoPage() {
                 {processo.numero_sei}
               </h1>
               <Badge
-                className={`text-xs ${
-                  currentStage === "concluido"
-                    ? "bg-emerald-600 text-white"
-                    : currentStage === "em_analise"
+                className={`text-xs ${currentStage === "concluido"
+                  ? "bg-emerald-600 text-white"
+                  : currentStage === "em_analise"
                     ? "bg-amber-600 text-white"
                     : currentStage === "aguardando_parecer"
-                    ? "bg-blue-600 text-white"
-                    : "bg-slate-600 text-white"
-                }`}
+                      ? "bg-blue-600 text-white"
+                      : "bg-slate-600 text-white"
+                  }`}
               >
                 {currentStage === "concluido"
                   ? "Concluído"
                   : currentStage === "em_analise"
-                  ? "Em Análise"
-                  : currentStage === "aguardando_parecer"
-                  ? "Aguardando Parecer"
-                  : "Criar Processo (Triagem)"}
+                    ? "Em Análise"
+                    : currentStage === "aguardando_parecer"
+                      ? "Aguardando Parecer"
+                      : "Criar Processo (Triagem)"}
               </Badge>
               {processo.priority === "urgente" && (
                 <Badge variant="danger" className="text-[10px]">
@@ -844,11 +858,10 @@ export default function DetalhesProcessoPage() {
           <div className="grid grid-cols-4 gap-2 text-center text-xs">
             {/* 1. Criar Processo (Triagem) */}
             <div
-              className={`p-2.5 rounded-lg border font-medium ${
-                currentStage === "triagem"
-                  ? "bg-blue-50 border-blue-300 text-blue-900 ring-2 ring-blue-500/20"
-                  : "bg-white border-slate-200 text-slate-700"
-              }`}
+              className={`p-2.5 rounded-lg border font-medium ${currentStage === "triagem"
+                ? "bg-blue-50 border-blue-300 text-blue-900 ring-2 ring-blue-500/20"
+                : "bg-white border-slate-200 text-slate-700"
+                }`}
             >
               <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">
                 Etapa 1
@@ -861,13 +874,12 @@ export default function DetalhesProcessoPage() {
 
             {/* 2. Aguardando Parecer */}
             <div
-              className={`p-2.5 rounded-lg border font-medium ${
-                currentStage === "aguardando_parecer"
-                  ? "bg-blue-50 border-blue-400 text-blue-900 ring-2 ring-blue-500/20 shadow-sm"
-                  : currentStage === "em_analise" || currentStage === "concluido"
+              className={`p-2.5 rounded-lg border font-medium ${currentStage === "aguardando_parecer"
+                ? "bg-blue-50 border-blue-400 text-blue-900 ring-2 ring-blue-500/20 shadow-sm"
+                : currentStage === "em_analise" || currentStage === "concluido"
                   ? "bg-white border-slate-200 text-slate-700"
                   : "bg-slate-100 border-slate-200 text-slate-400"
-              }`}
+                }`}
             >
               <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">
                 Etapa 2
@@ -884,13 +896,12 @@ export default function DetalhesProcessoPage() {
 
             {/* 3. Em Análise */}
             <div
-              className={`p-2.5 rounded-lg border font-medium ${
-                currentStage === "em_analise"
-                  ? "bg-amber-50 border-amber-400 text-amber-900 ring-2 ring-amber-500/20 shadow-sm"
-                  : currentStage === "concluido"
+              className={`p-2.5 rounded-lg border font-medium ${currentStage === "em_analise"
+                ? "bg-amber-50 border-amber-400 text-amber-900 ring-2 ring-amber-500/20 shadow-sm"
+                : currentStage === "concluido"
                   ? "bg-white border-slate-200 text-slate-700"
                   : "bg-slate-100 border-slate-200 text-slate-400"
-              }`}
+                }`}
             >
               <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">
                 Etapa 3
@@ -909,11 +920,10 @@ export default function DetalhesProcessoPage() {
 
             {/* 4. Concluído */}
             <div
-              className={`p-2.5 rounded-lg border font-medium ${
-                currentStage === "concluido"
-                  ? "bg-emerald-50 border-emerald-400 text-emerald-900 ring-2 ring-emerald-500/20 shadow-sm"
-                  : "bg-slate-100 border-slate-200 text-slate-400"
-              }`}
+              className={`p-2.5 rounded-lg border font-medium ${currentStage === "concluido"
+                ? "bg-emerald-50 border-emerald-400 text-emerald-900 ring-2 ring-emerald-500/20 shadow-sm"
+                : "bg-slate-100 border-slate-200 text-slate-400"
+                }`}
             >
               <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">
                 Etapa 4
@@ -1023,10 +1033,10 @@ export default function DetalhesProcessoPage() {
                 {processo.paciente?.gender === "M"
                   ? "Masc"
                   : processo.paciente?.gender === "F"
-                  ? "Fem"
-                  : processo.paciente?.gender === "outro"
-                  ? "Outro"
-                  : "Sexo N/I"}
+                    ? "Fem"
+                    : processo.paciente?.gender === "outro"
+                      ? "Outro"
+                      : "Sexo N/I"}
               </Badge>
             </div>
             <div className="text-slate-600 font-mono text-[11px]">
@@ -1186,27 +1196,26 @@ export default function DetalhesProcessoPage() {
 
                     {/* Status atual do item */}
                     <Badge
-                      className={`text-xs px-2.5 py-1 ${
-                        item.status === "deferido"
-                          ? "bg-emerald-600 text-white"
-                          : item.status === "indeferido"
+                      className={`text-xs px-2.5 py-1 ${item.status === "deferido"
+                        ? "bg-emerald-600 text-white"
+                        : item.status === "indeferido"
                           ? "bg-rose-600 text-white"
                           : item.status === "em_exigencia"
-                          ? "bg-amber-600 text-white"
-                          : item.status === "deferido_parcial"
-                          ? "bg-blue-600 text-white"
-                          : "bg-slate-500 text-white"
-                      }`}
+                            ? "bg-amber-600 text-white"
+                            : item.status === "deferido_parcial"
+                              ? "bg-blue-600 text-white"
+                              : "bg-slate-500 text-white"
+                        }`}
                     >
                       {item.status === "deferido"
                         ? "Deferido"
                         : item.status === "indeferido"
-                        ? "Indeferido"
-                        : item.status === "em_exigencia"
-                        ? "Em Exigência"
-                        : item.status === "deferido_parcial"
-                        ? "Deferido Parcial"
-                        : "Pendente"}
+                          ? "Indeferido"
+                          : item.status === "em_exigencia"
+                            ? "Em Exigência"
+                            : item.status === "deferido_parcial"
+                              ? "Deferido Parcial"
+                              : "Pendente"}
                     </Badge>
                   </div>
                 </div>
@@ -1238,13 +1247,12 @@ export default function DetalhesProcessoPage() {
                             <div className="flex flex-wrap items-center gap-1.5 mb-1">
                               <Badge
                                 variant="outline"
-                                className={`text-[9px] uppercase font-bold px-1.5 py-0 ${
-                                  dec.status === "deferido"
-                                    ? "border-emerald-300 text-emerald-800 bg-emerald-50"
-                                    : dec.status === "indeferido"
+                                className={`text-[9px] uppercase font-bold px-1.5 py-0 ${dec.status === "deferido"
+                                  ? "border-emerald-300 text-emerald-800 bg-emerald-50"
+                                  : dec.status === "indeferido"
                                     ? "border-rose-300 text-rose-800 bg-rose-50"
                                     : "border-amber-300 text-amber-800 bg-amber-50"
-                                }`}
+                                  }`}
                               >
                                 {dec.status.replace("_", " ")}
                               </Badge>
@@ -1288,11 +1296,10 @@ export default function DetalhesProcessoPage() {
                     <button
                       type="button"
                       onClick={() => handleUpdateItemDecision(index, "deferido")}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                        item.status === "deferido"
-                          ? "bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-600/30"
-                          : "bg-slate-100 hover:bg-slate-200 text-slate-700"
-                      }`}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${item.status === "deferido"
+                        ? "bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-600/30"
+                        : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                        }`}
                     >
                       <Check className="h-3.5 w-3.5" />
                       Deferido
@@ -1301,11 +1308,10 @@ export default function DetalhesProcessoPage() {
                     <button
                       type="button"
                       onClick={() => handleUpdateItemDecision(index, "indeferido")}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                        item.status === "indeferido"
-                          ? "bg-rose-600 text-white shadow-sm ring-2 ring-rose-600/30"
-                          : "bg-slate-100 hover:bg-slate-200 text-slate-700"
-                      }`}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${item.status === "indeferido"
+                        ? "bg-rose-600 text-white shadow-sm ring-2 ring-rose-600/30"
+                        : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                        }`}
                     >
                       <X className="h-3.5 w-3.5" />
                       Indeferido
@@ -1314,11 +1320,10 @@ export default function DetalhesProcessoPage() {
                     <button
                       type="button"
                       onClick={() => handleUpdateItemDecision(index, "em_exigencia")}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                        item.status === "em_exigencia"
-                          ? "bg-amber-600 text-white shadow-sm ring-2 ring-amber-600/30"
-                          : "bg-slate-100 hover:bg-slate-200 text-slate-700"
-                      }`}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${item.status === "em_exigencia"
+                        ? "bg-amber-600 text-white shadow-sm ring-2 ring-amber-600/30"
+                        : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                        }`}
                     >
                       <AlertTriangle className="h-3.5 w-3.5" />
                       Em Exigência / Pendência
@@ -1327,11 +1332,10 @@ export default function DetalhesProcessoPage() {
                     <button
                       type="button"
                       onClick={() => handleUpdateItemDecision(index, "deferido_parcial")}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                        item.status === "deferido_parcial"
-                          ? "bg-blue-600 text-white shadow-sm ring-2 ring-blue-600/30"
-                          : "bg-slate-100 hover:bg-slate-200 text-slate-700"
-                      }`}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${item.status === "deferido_parcial"
+                        ? "bg-blue-600 text-white shadow-sm ring-2 ring-blue-600/30"
+                        : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                        }`}
                     >
                       <Check className="h-3.5 w-3.5" />
                       Deferido Parcial
@@ -1355,7 +1359,7 @@ export default function DetalhesProcessoPage() {
                     </button>
                   </div>
                   <textarea
-                    rows={2}
+                    rows={6}
                     value={item.justification || ""}
                     onChange={(e) => {
                       const updated = [...itemsState];
@@ -1368,8 +1372,8 @@ export default function DetalhesProcessoPage() {
                     onBlur={() => {
                       updateProcesso(processo.id, { items: itemsState });
                     }}
-                    placeholder="Justifique a conclusão técnica do fármaco com base no PCDT, portaria e critérios clínicos..."
-                    className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-sans"
+                    placeholder="Descreva detalhadamente a fundamentação técnica e justificativa clínica (critérios do PCDT, diretrizes da SESAB, posologia, exames comprobatórios, etc.)..."
+                    className="w-full text-xs p-3 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-sans min-h-[150px] leading-relaxed resize-y shadow-sm"
                   />
                 </div>
               </div>
@@ -1404,37 +1408,17 @@ export default function DetalhesProcessoPage() {
           </Button>
         </CardHeader>
         <CardContent className="p-4 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">
-                Tipo de Parecer Regulatório *
-              </label>
-              <select
-                value={selectedTipoParecerId}
-                onChange={(e) => setSelectedTipoParecerId(e.target.value)}
-                className="w-full text-xs p-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              >
-                <option value="">Selecione o tipo de parecer...</option>
-                {tiposParecer.map((tp) => (
-                  <option key={tp.id} value={tp.id}>
-                    {tp.title} ({tp.regulatory_effect.toUpperCase()})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">
-                Recomendações Clínicas / Dispensação
-              </label>
-              <input
-                type="text"
-                value={consolidatedRecommendations}
-                onChange={(e) => setConsolidatedRecommendations(e.target.value)}
-                placeholder="Ex: Reavaliação clínica trimestral com exames laboratoriais..."
-                className="w-full text-xs p-2 rounded-md border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
+          <div className="text-xs">
+            <label className="block font-semibold text-slate-700 mb-1">
+              Recomendações Clínicas / Dispensação
+            </label>
+            <input
+              type="text"
+              value={consolidatedRecommendations}
+              onChange={(e) => setConsolidatedRecommendations(e.target.value)}
+              placeholder="Ex: Reavaliação clínica trimestral com exames laboratoriais..."
+              className="w-full text-xs p-2 rounded-md border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
           </div>
 
           <div className="space-y-1">
@@ -1858,11 +1842,10 @@ export default function DetalhesProcessoPage() {
                 <button
                   type="button"
                   onClick={() => setComboHistoryFilter("todos")}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                    comboHistoryFilter === "todos"
-                      ? "bg-slate-900 text-white shadow-xs"
-                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                  }`}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${comboHistoryFilter === "todos"
+                    ? "bg-slate-900 text-white shadow-xs"
+                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    }`}
                 >
                   Todos ({allHistory.length})
                 </button>
@@ -1870,11 +1853,10 @@ export default function DetalhesProcessoPage() {
                   <button
                     type="button"
                     onClick={() => setComboHistoryFilter("paciente")}
-                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                      comboHistoryFilter === "paciente"
-                        ? "bg-purple-700 text-white shadow-xs"
-                        : "bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200"
-                    }`}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${comboHistoryFilter === "paciente"
+                      ? "bg-purple-700 text-white shadow-xs"
+                      : "bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200"
+                      }`}
                   >
                     Deste Paciente ({samePatientCount})
                   </button>
@@ -1882,33 +1864,30 @@ export default function DetalhesProcessoPage() {
                 <button
                   type="button"
                   onClick={() => setComboHistoryFilter("deferido")}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                    comboHistoryFilter === "deferido"
-                      ? "bg-emerald-700 text-white shadow-xs"
-                      : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
-                  }`}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${comboHistoryFilter === "deferido"
+                    ? "bg-emerald-700 text-white shadow-xs"
+                    : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
+                    }`}
                 >
                   Deferidos ({deferidosCount})
                 </button>
                 <button
                   type="button"
                   onClick={() => setComboHistoryFilter("indeferido")}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                    comboHistoryFilter === "indeferido"
-                      ? "bg-rose-700 text-white shadow-xs"
-                      : "bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200"
-                  }`}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${comboHistoryFilter === "indeferido"
+                    ? "bg-rose-700 text-white shadow-xs"
+                    : "bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200"
+                    }`}
                 >
                   Indeferidos ({indeferidosCount})
                 </button>
                 <button
                   type="button"
                   onClick={() => setComboHistoryFilter("em_exigencia")}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                    comboHistoryFilter === "em_exigencia"
-                      ? "bg-amber-700 text-white shadow-xs"
-                      : "bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200"
-                  }`}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${comboHistoryFilter === "em_exigencia"
+                    ? "bg-amber-700 text-white shadow-xs"
+                    : "bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200"
+                    }`}
                 >
                   Em Exigência ({exigenciasCount})
                 </button>
@@ -1934,33 +1913,31 @@ export default function DetalhesProcessoPage() {
                   visibleItems.map((hist: ComboDecisionHistoryItem) => (
                     <div
                       key={hist.id}
-                      className={`p-3.5 rounded-lg border transition-all ${
-                        hist.isSamePatient
-                          ? "bg-purple-50/30 border-purple-200 shadow-xs"
-                          : "bg-white border-slate-200 shadow-xs hover:border-slate-300"
-                      }`}
+                      className={`p-3.5 rounded-lg border transition-all ${hist.isSamePatient
+                        ? "bg-purple-50/30 border-purple-200 shadow-xs"
+                        : "bg-white border-slate-200 shadow-xs hover:border-slate-300"
+                        }`}
                     >
                       {/* Topo do Card de Histórico */}
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <Badge
-                            className={`text-xs px-2.5 py-0.5 font-bold uppercase ${
-                              hist.status === "deferido"
-                                ? "bg-emerald-600 text-white"
-                                : hist.status === "indeferido"
+                            className={`text-xs px-2.5 py-0.5 font-bold uppercase ${hist.status === "deferido"
+                              ? "bg-emerald-600 text-white"
+                              : hist.status === "indeferido"
                                 ? "bg-rose-600 text-white"
                                 : hist.status === "em_exigencia"
-                                ? "bg-amber-600 text-white"
-                                : "bg-blue-600 text-white"
-                            }`}
+                                  ? "bg-amber-600 text-white"
+                                  : "bg-blue-600 text-white"
+                              }`}
                           >
                             {hist.status === "deferido"
                               ? "Deferido"
                               : hist.status === "indeferido"
-                              ? "Indeferido"
-                              : hist.status === "em_exigencia"
-                              ? "Em Exigência"
-                              : "Deferido Parcial"}
+                                ? "Indeferido"
+                                : hist.status === "em_exigencia"
+                                  ? "Em Exigência"
+                                  : "Deferido Parcial"}
                           </Badge>
 
                           {hist.isSamePatient && (
@@ -2159,5 +2136,22 @@ export default function DetalhesProcessoPage() {
         </div>
       </Dialog>
     </div>
+  );
+}
+
+export default function DetalhesProcessoPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex-1 flex flex-col items-center justify-center min-h-[60vh] gap-3">
+          <div className="w-8 h-8 border-2 border-[#171A20] border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs text-[#5C5E62] font-mono tracking-wide">
+            Carregando processo...
+          </p>
+        </div>
+      }
+    >
+      <DetalhesProcessoContent />
+    </Suspense>
   );
 }

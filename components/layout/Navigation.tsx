@@ -19,9 +19,9 @@ import { useApp } from "@/lib/context/AppContext";
 
 export function Navigation() {
   const pathname = usePathname();
-  const { canEdit, isAuthenticated, currentUser } = useApp();
+  const { canEdit, isAuthenticated, currentUser, authChecked } = useApp();
 
-  if (pathname === "/" || pathname === "/login" || !isAuthenticated || !currentUser) {
+  if (!authChecked || pathname === "/" || pathname === "/login" || !isAuthenticated || !currentUser) {
     return null;
   }
 

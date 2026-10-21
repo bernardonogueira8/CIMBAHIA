@@ -552,8 +552,8 @@ export default function NovoProcessoPage() {
           data.afsesab_status === "paciente_existe"
             ? "Paciente já cadastrado no AFSESAB."
             : data.afsesab_status === "novo_paciente"
-            ? "Novo paciente (sem cadastro prévio no AFSESAB)."
-            : "";
+              ? "Novo paciente (sem cadastro prévio no AFSESAB)."
+              : "";
 
         setQuickCpfFeedback({
           type: "success",
@@ -596,8 +596,8 @@ export default function NovoProcessoPage() {
           ? `${newPatientOutsideCity.trim()} (Fora da Bahia)`
           : "Fora da Bahia / Outro Estado"
         : mun
-        ? `${mun.name} - BA`
-        : null;
+          ? `${mun.name} - BA`
+          : null;
 
       const created = await addPatient({
         unit_id: newPatientDeducedUnit?.id || (mun?.base_id ? mun.base_id : deducedUnit?.id || units[0]?.id || ""),
@@ -694,14 +694,14 @@ export default function NovoProcessoPage() {
       const orig = origens.find((o) => o.id === origemId);
       const mun = isProcessoOutsideBahia || municipioId === "fora-da-bahia"
         ? ({
-            id: "fora-da-bahia",
-            ibge_code: "0000000",
-            name: processoOutsideCity.trim() ? `${processoOutsideCity.trim()} (Fora da Bahia)` : "Fora da Bahia / Outro Estado",
-            brs_name: "Interestadual",
-            nrs_name: "Interestadual",
-            macroregion: "Fora da Bahia",
-            active: true,
-          } as Municipio)
+          id: "fora-da-bahia",
+          ibge_code: "0000000",
+          name: processoOutsideCity.trim() ? `${processoOutsideCity.trim()} (Fora da Bahia)` : "Fora da Bahia / Outro Estado",
+          brs_name: "Interestadual",
+          nrs_name: "Interestadual",
+          macroregion: "Fora da Bahia",
+          active: true,
+        } as Municipio)
         : municipios.find((m) => m.id === municipioId);
 
       // Se o paciente selecionado não tinha município ou mudou de residência, atualiza o cadastro dele
@@ -960,10 +960,10 @@ export default function NovoProcessoPage() {
                         {selectedPatient.gender === "M"
                           ? "Masc"
                           : selectedPatient.gender === "F"
-                          ? "Fem"
-                          : selectedPatient.gender === "outro"
-                          ? "Outro"
-                          : "Sexo N/I"}
+                            ? "Fem"
+                            : selectedPatient.gender === "outro"
+                              ? "Outro"
+                              : "Sexo N/I"}
                       </Badge>
                       {selectedPatient.cpf_not_provided ? (
                         <Badge variant="neutral" className="text-[10px] text-amber-700 bg-amber-50">
@@ -996,8 +996,8 @@ export default function NovoProcessoPage() {
                         {isProcessoOutsideBahia
                           ? `Fora da Bahia (${processoOutsideCity || "Outro Estado"})`
                           : selectedMunicipio
-                          ? `${selectedMunicipio.name} - BA`
-                          : selectedPatient.municipality_name || "Município a definir"}
+                            ? `${selectedMunicipio.name} - BA`
+                            : selectedPatient.municipality_name || "Município a definir"}
                       </span>
                       {deducedUnit && (
                         <Badge variant="outline" className="text-[10px] bg-white text-emerald-800 border-emerald-300 flex items-center gap-1 font-medium">
@@ -1174,9 +1174,8 @@ export default function NovoProcessoPage() {
                                     setMunicipioSearchInput(`${mun.name} - BA`);
                                     setIsMunicipioSearchDropdownOpen(false);
                                   }}
-                                  className={`p-2 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0 text-xs flex items-center justify-between ${
-                                    municipioId === mun.id ? "bg-emerald-50 text-emerald-900 font-semibold" : ""
-                                  }`}
+                                  className={`p-2 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0 text-xs flex items-center justify-between ${municipioId === mun.id ? "bg-emerald-50 text-emerald-900 font-semibold" : ""
+                                    }`}
                                 >
                                   <div className="flex items-center gap-2">
                                     <span>{mun.name}</span>
@@ -1630,11 +1629,10 @@ export default function NovoProcessoPage() {
                       <span className="font-mono font-bold text-slate-900">{proc.numero_sei}</span>
                       <Badge
                         variant="outline"
-                        className={`text-[10px] ${
-                          proc.status === "concluido" || proc.status.startsWith("concluido_")
-                            ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                            : "bg-blue-100 text-blue-800 border-blue-300"
-                        }`}
+                        className={`text-[10px] ${proc.status === "concluido" || proc.status.startsWith("concluido_")
+                          ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                          : "bg-blue-100 text-blue-800 border-blue-300"
+                          }`}
                       >
                         {proc.status}
                       </Badge>
@@ -1667,15 +1665,14 @@ export default function NovoProcessoPage() {
                           )}
                         </div>
                         <Badge
-                          className={`text-[9px] ${
-                            item.status === "deferido"
-                              ? "bg-emerald-600 text-white"
-                              : item.status === "indeferido"
+                          className={`text-[9px] ${item.status === "deferido"
+                            ? "bg-emerald-600 text-white"
+                            : item.status === "indeferido"
                               ? "bg-rose-600 text-white"
                               : item.status === "em_exigencia"
-                              ? "bg-amber-600 text-white"
-                              : "bg-slate-500 text-white"
-                          }`}
+                                ? "bg-amber-600 text-white"
+                                : "bg-slate-500 text-white"
+                            }`}
                         >
                           {item.status || "pendente"}
                         </Badge>
@@ -1724,9 +1721,9 @@ export default function NovoProcessoPage() {
           <div className="space-y-4">
             <form onSubmit={handleSaveQuickPatient} className="space-y-3">
               {/* 1. CPF (Prioritário no topo para consulta e autopreenchimento com Enter) */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+              <div>
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5 pb-2">
                     <span>CPF {newPatientCpfNotProvided ? "(Dispensado)" : "*"}</span>
                     <span className="text-[10px] font-normal text-slate-500">(Pressione Enter para consultar)</span>
                   </label>
@@ -1762,9 +1759,8 @@ export default function NovoProcessoPage() {
                     placeholder={newPatientCpfNotProvided ? "CPF não informado" : "000.000.000-00 (Enter para buscar)"}
                     disabled={newPatientCpfNotProvided}
                     required={!newPatientCpfNotProvided}
-                    className={`text-xs font-mono flex-1 ${
-                      newPatientCpfNotProvided ? "bg-slate-100 text-slate-400" : ""
-                    }`}
+                    className={`text-xs font-mono flex-1 ${newPatientCpfNotProvided ? "bg-slate-100 text-slate-400" : ""
+                      }`}
                   />
                   {!newPatientCpfNotProvided && (
                     <Button
@@ -1793,11 +1789,10 @@ export default function NovoProcessoPage() {
 
                 {quickCpfFeedback && (
                   <div
-                    className={`p-2.5 rounded text-xs space-y-1.5 ${
-                      quickCpfFeedback.type === "success"
-                        ? "bg-emerald-50 border border-emerald-200 text-emerald-900"
-                        : "bg-rose-50 border border-rose-200 text-rose-800"
-                    }`}
+                    className={`p-2.5 rounded text-xs space-y-1.5 ${quickCpfFeedback.type === "success"
+                      ? "bg-emerald-50 border border-emerald-200 text-emerald-900 mt-2"
+                      : "bg-rose-50 border border-rose-200 text-rose-800 mt-2"
+                      }`}
                   >
                     <div className="flex items-center gap-2">
                       {quickCpfFeedback.type === "success" ? (
@@ -2030,9 +2025,8 @@ export default function NovoProcessoPage() {
                                 setNewPatientMunicipioSearch(`${mun.name} - BA`);
                                 setIsNewPatientMunicipioDropdownOpen(false);
                               }}
-                              className={`p-2 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0 text-xs flex items-center justify-between ${
-                                newPatientMunicipioId === mun.id ? "bg-emerald-50 text-emerald-900 font-semibold" : ""
-                              }`}
+                              className={`p-2 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0 text-xs flex items-center justify-between ${newPatientMunicipioId === mun.id ? "bg-emerald-50 text-emerald-900 font-semibold" : ""
+                                }`}
                             >
                               <div className="flex items-center gap-2">
                                 <span>{mun.name}</span>

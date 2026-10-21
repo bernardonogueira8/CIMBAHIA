@@ -9,16 +9,16 @@ import {
   getSesabCredentials,
 } from "@/lib/server/token-service";
 
-// Função utilitária para limpar CPF/CNS (somente dígitos)
-function cleanDigits(value: string | null | undefined): string {
-  if (!value) return "";
-  return value.replace(/\D/g, "");
+// Função utilitária para limpar CPF/CNS/IBGE/CEP (somente dígitos)
+function cleanDigits(value: any): string {
+  if (value === null || value === undefined) return "";
+  return String(value).replace(/\D/g, "");
 }
 
 // Formata CPF para o padrão 000.000.000-00
-function formatCPF(cpf: string): string {
+function formatCPF(cpf: any): string {
   const digits = cleanDigits(cpf);
-  if (digits.length !== 11) return cpf;
+  if (digits.length !== 11) return String(cpf || "");
   return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
 }
 
@@ -345,9 +345,31 @@ async function handleCpfLookup(
       const isOutsideBahia = Boolean(rawUf && String(rawUf).trim().toUpperCase() !== "BA");
 
       // Resolução inteligente para os 417 municípios da Bahia e dedução de BRS
-      const resolvedMun = !isOutsideBahia
+      let resolvedMun = !isOutsideBahia
         ? resolveBahiaMunicipio(rawMunId, rawIbge, rawName, rawCep, rawUf)
         : null;
+
+      // Fallback inteligente por CEP via ViaCEP caso os campos diretos da SESAB não tragam o código IBGE
+      if (!resolvedMun && !isOutsideBahia && rawCep) {
+        const cepClean = cleanDigits(rawCep);
+        if (cepClean.length === 8 && cepClean.startsWith("4")) {
+          try {
+            const viaCepRes = await fetch(`https://viacep.com.br/ws/${cepClean}/json/`, {
+              signal: AbortSignal.timeout(2000),
+            });
+            if (viaCepRes.ok) {
+              const viaCepData = await viaCepRes.json();
+              if (viaCepData && !viaCepData.erro) {
+                const ibge = cleanDigits(viaCepData.ibge);
+                const city = viaCepData.localidade;
+                resolvedMun = resolveBahiaMunicipio(null, ibge, city, cepClean, viaCepData.uf);
+              }
+            }
+          } catch {
+            // Falha silenciosa para não comprometer a consulta principal do paciente
+          }
+        }
+      }
 
       const result: CpfLookupResult = {
         found: true,

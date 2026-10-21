@@ -370,36 +370,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isSupabaseOnline, setIsSupabaseOnline] = useState<boolean>(isSupabaseConfigured);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
-  const [isDemoMode, setIsDemoMode] = useState<boolean>(() =>
-    getStoredOrDefault("isDemoMode", false)
-  );
+  const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
 
-  // Usuário ativo no sistema (se não estiver em modo demo e não houver login, inicia como null)
-  const [currentUser, setCurrentUser] = useState<Profile | null>(() => {
-    const isDemo = getStoredOrDefault("isDemoMode", false);
-    if (isDemo) {
-      return getStoredOrDefault<Profile | null>("currentUser", INITIAL_PROFILES[0]);
-    }
-    return getStoredOrDefault<Profile | null>("currentUser", null);
-  });
+  // Usuário ativo no sistema (inicia de forma consistente com SSR e é verificado em initAuthAndSync)
+  const [currentUser, setCurrentUser] = useState<Profile | null>(null);
 
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    const isDemo = getStoredOrDefault("isDemoMode", false);
-    if (isDemo) return true;
-    const storedUser = getStoredOrDefault<Profile | null>("currentUser", null);
-    return Boolean(storedUser);
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
   const [authChecked, setAuthChecked] = useState<boolean>(false);
 
   // Unidade sendo visualizada (padrão a própria unidade do usuário ou 'all' para administradores)
-  const [selectedUnitId, setSelectedUnitId] = useState<string>(() => {
-    const storedUser = getStoredOrDefault<Profile | null>("currentUser", null);
-    if (!storedUser || storedUser.role === "admin" || !storedUser.unit_id) {
-      return "all";
-    }
-    return storedUser.unit_id;
-  });
+  const [selectedUnitId, setSelectedUnitId] = useState<string>("all");
 
   // Sincronização e Carga de dados a partir do Supabase
   const refreshFromSupabase = useCallback(async () => {
@@ -560,6 +541,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
+        // Sem sessão e não-demo (ou Supabase não configurado): verifica usuário salvo em localStorage
+        if (!isSupabaseConfigured || !supabase) {
+          const storedUser = getStoredOrDefault<Profile | null>("currentUser", null);
+          if (active && storedUser) {
+            setIsDemoMode(false);
+            setCurrentUser(storedUser);
+            setIsAuthenticated(true);
+            if (storedUser.unit_id) setSelectedUnitId(storedUser.unit_id);
+            setAuthChecked(true);
+            return;
+          }
+        }
+
         // Sem sessão e não-demo: Deslogado e sem dados sensíveis
         if (active) {
           setIsDemoMode(false);
@@ -652,22 +646,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => saveToStorage("tiposParecer", tiposParecer), [tiposParecer]);
   useEffect(() => saveToStorage("processos", processos), [processos]);
   useEffect(() => {
+    if (!authChecked) return;
     if (isDemoMode) {
       saveToStorage("patients", patients);
     }
-  }, [patients, isDemoMode]);
+  }, [patients, isDemoMode, authChecked]);
   useEffect(() => {
+    if (!authChecked) return;
     if (isDemoMode) {
       saveToStorage("consultations", consultations);
     }
-  }, [consultations, isDemoMode]);
+  }, [consultations, isDemoMode, authChecked]);
   useEffect(() => {
+    if (!authChecked) return;
     if (isDemoMode) {
       saveToStorage("monthlyData", monthlyData);
     }
-  }, [monthlyData, isDemoMode]);
-  useEffect(() => saveToStorage("currentUser", currentUser), [currentUser]);
-  useEffect(() => saveToStorage("isDemoMode", isDemoMode), [isDemoMode]);
+  }, [monthlyData, isDemoMode, authChecked]);
+  useEffect(() => {
+    if (!authChecked) return;
+    saveToStorage("currentUser", currentUser);
+  }, [currentUser, authChecked]);
+  useEffect(() => {
+    if (!authChecked) return;
+    saveToStorage("isDemoMode", isDemoMode);
+  }, [isDemoMode, authChecked]);
 
   const enterDemoMode = (profileId: string) => {
     const prof =

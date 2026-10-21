@@ -205,8 +205,8 @@ export default function PacientesPage() {
           data.afsesab_status === "paciente_existe"
             ? "Paciente já cadastrado no AFSESAB."
             : data.afsesab_status === "novo_paciente"
-            ? "Novo paciente (sem cadastro prévio no AFSESAB)."
-            : "";
+              ? "Novo paciente (sem cadastro prévio no AFSESAB)."
+              : "";
 
         setCpfSearchFeedback({
           type: "success",
@@ -239,11 +239,11 @@ export default function PacientesPage() {
     const mun = !isOutsideBahia ? municipios.find((m) => m.id === municipalityId) : null;
     const deducedUnit = mun
       ? units.find(
-          (u) =>
-            (mun.base_id && u.id === mun.base_id) ||
-            u.served_municipalities?.some((sm) => sm.id === mun.id || sm.ibge_code === mun.ibge_code) ||
-            (mun.brs_name && u.name.toLowerCase().includes(mun.brs_name.replace(/^BRS\s+/i, "").toLowerCase()))
-        )
+        (u) =>
+          (mun.base_id && u.id === mun.base_id) ||
+          u.served_municipalities?.some((sm) => sm.id === mun.id || sm.ibge_code === mun.ibge_code) ||
+          (mun.brs_name && u.name.toLowerCase().includes(mun.brs_name.replace(/^BRS\s+/i, "").toLowerCase()))
+      )
       : null;
     const targetUnitId =
       deducedUnit?.id ||
@@ -258,8 +258,8 @@ export default function PacientesPage() {
         ? `${outsideCity.trim()} (Fora da Bahia)`
         : "Fora da Bahia / Outro Estado"
       : mun
-      ? `${mun.name} - BA`
-      : undefined;
+        ? `${mun.name} - BA`
+        : undefined;
 
     addPatient({
       unit_id: targetUnitId,
@@ -398,11 +398,11 @@ export default function PacientesPage() {
                   filteredPatients.map((patient) => {
                     const munOfPatient = !patient.is_outside_bahia
                       ? municipios.find(
-                          (m) =>
-                            (patient.municipality_id && m.id === patient.municipality_id) ||
-                            (patient.municipality_id && m.ibge_code === patient.municipality_id) ||
-                            (patient.municipality_name && m.name.toLowerCase() === patient.municipality_name.toLowerCase())
-                        )
+                        (m) =>
+                          (patient.municipality_id && m.id === patient.municipality_id) ||
+                          (patient.municipality_id && m.ibge_code === patient.municipality_id) ||
+                          (patient.municipality_name && m.name.toLowerCase() === patient.municipality_name.toLowerCase())
+                      )
                       : null;
 
                     const unit =
@@ -642,15 +642,15 @@ export default function PacientesPage() {
       >
         <form onSubmit={handleSavePatient} className="space-y-4">
           {/* 1. CPF (Prioritário no topo para consulta e autopreenchimento) */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+          <div>
             <div className="flex items-center justify-between">
               <div>
-                <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5 pb-2">
                   <span>CPF do Paciente {!cpfNotProvided && "*"}</span>
                   <span className="text-[10px] font-normal text-slate-500">(Priorize o CPF para consultar na SESAB)</span>
                 </label>
               </div>
-              <label className="flex items-center gap-1.5 text-[11px] text-[#5C5E62] cursor-pointer">
+              <label className="flex items-center gap-1.5 text-[11px] text-[#5C5E62] cursor-pointer pb-2">
                 <input
                   type="checkbox"
                   checked={cpfNotProvided}
@@ -707,13 +707,12 @@ export default function PacientesPage() {
             {/* Banner de Feedback da Busca de CPF & Status AFSESAB */}
             {cpfSearchFeedback && (
               <div
-                className={`p-2.5 rounded-lg text-xs flex items-start justify-between gap-2 border ${
-                  cpfSearchFeedback.type === "success"
-                    ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-                    : cpfSearchFeedback.type === "info"
+                className={`p-2.5 mt-3 rounded-lg text-xs flex items-start justify-between gap-2 border ${cpfSearchFeedback.type === "success"
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                  : cpfSearchFeedback.type === "info"
                     ? "bg-blue-50 border-blue-200 text-blue-800"
                     : "bg-red-50 border-red-200 text-red-800"
-                }`}
+                  }`}
               >
                 <div className="flex items-start gap-2">
                   {cpfSearchFeedback.type === "success" ? (
@@ -727,11 +726,10 @@ export default function PacientesPage() {
                       <div className="flex items-center gap-2 pt-0.5">
                         <Badge
                           variant="outline"
-                          className={`text-[10px] font-semibold ${
-                            afsesabStatus === "paciente_existe"
-                              ? "bg-emerald-100 text-emerald-900 border-emerald-300"
-                              : "bg-amber-100 text-amber-900 border-amber-300"
-                          }`}
+                          className={`text-[10px] font-semibold ${afsesabStatus === "paciente_existe"
+                            ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                            : "bg-amber-100 text-amber-900 border-amber-300"
+                            }`}
                         >
                           {afsesabStatus === "paciente_existe"
                             ? "✅ Cadastrado no AFSESAB"
@@ -920,9 +918,8 @@ export default function PacientesPage() {
                               setMunicipioSearch(`${mun.name} - BA`);
                               setIsMunicipioDropdownOpen(false);
                             }}
-                            className={`p-2 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0 text-xs flex items-center justify-between ${
-                              municipalityId === mun.id ? "bg-emerald-50 text-emerald-900 font-semibold" : ""
-                            }`}
+                            className={`p-2 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0 text-xs flex items-center justify-between ${municipalityId === mun.id ? "bg-emerald-50 text-emerald-900 font-semibold" : ""
+                              }`}
                           >
                             <div className="flex items-center gap-2">
                               <span>{mun.name}</span>
