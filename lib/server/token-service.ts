@@ -175,8 +175,9 @@ export async function getValidToken1(forceRefresh = false): Promise<string> {
       passoward: password.trim(), // Compatibilidade com grafia informada
     };
 
+    const timeoutMs = Number(process.env.SESAB_TIMEOUT_MS) || 15000;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const resp = await fetch(loginUrl, {
@@ -213,6 +214,13 @@ export async function getValidToken1(forceRefresh = false): Promise<string> {
       };
 
       return token;
+    } catch (err: any) {
+      if (err?.name === "AbortError" || String(err?.message || "").toLowerCase().includes("aborted")) {
+        throw new Error(
+          `Tempo limite esgotado (${timeoutMs / 1000}s) ao conectar com o serviço SESAB (/api/v1/login). O servidor estadual pode estar temporariamente inacessível.`
+        );
+      }
+      throw err;
     } finally {
       clearTimeout(timeoutId);
       inFlightToken1Promise = null;
@@ -263,8 +271,9 @@ export async function getValidToken2(forceRefresh = false): Promise<string> {
       passoward: password.trim(),
     };
 
+    const timeoutMs = Number(process.env.SESAB_TIMEOUT_MS) || 15000;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const resp = await fetch(logisticaUrl, {
@@ -307,6 +316,13 @@ export async function getValidToken2(forceRefresh = false): Promise<string> {
       };
 
       return token2;
+    } catch (err: any) {
+      if (err?.name === "AbortError" || String(err?.message || "").toLowerCase().includes("aborted")) {
+        throw new Error(
+          `Tempo limite esgotado (${timeoutMs / 1000}s) ao conectar com o serviço SESAB (/logistica/login). O servidor estadual pode estar temporariamente inacessível.`
+        );
+      }
+      throw err;
     } finally {
       clearTimeout(timeoutId);
       inFlightToken2Promise = null;

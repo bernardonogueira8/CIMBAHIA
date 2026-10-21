@@ -213,16 +213,17 @@ export default function PacientesPage() {
           message: `Dados localizados na base externa (${data.nome || "Paciente"}). ${afStatusMsg} Campos preenchidos automaticamente!`,
         });
       } else {
+        const isTimeout = (data as any).timeout || data.message?.includes("tempo hábil") || data.message?.includes("manualmente");
         setCpfSearchFeedback({
-          type: "error",
+          type: isTimeout ? "info" : "error",
           message: data.message || "CPF não localizado na base externa.",
         });
       }
     } catch (err) {
       console.error("Erro ao consultar CPF:", err);
       setCpfSearchFeedback({
-        type: "error",
-        message: "Falha na conexão com a API de pesquisa de CPF.",
+        type: "info",
+        message: "Não foi possível conectar à base externa no momento. Prossiga com o preenchimento manual.",
       });
     } finally {
       setIsSearchingCpf(false);

@@ -9,6 +9,10 @@ import {
   getSesabCredentials,
 } from "@/lib/server/token-service";
 
+export const preferredRegion = "gru1";
+export const maxDuration = 30;
+export const dynamic = "force-dynamic";
+
 // Função utilitária para limpar CPF/CNS/IBGE/CEP (somente dígitos)
 function cleanDigits(value: any): string {
   if (value === null || value === undefined) return "";
@@ -208,15 +212,23 @@ async function handleCpfLookup(
         authInfo = await getSesabAuthHeaders(false);
       } catch (authErr: any) {
         console.error("Erro na autenticação SESAB (Token 1 ou Token 2):", authErr);
+        const isTimeout =
+          authErr?.name === "AbortError" ||
+          String(authErr?.message || "").toLowerCase().includes("aborted") ||
+          String(authErr?.message || "").toLowerCase().includes("tempo limite");
+
         return NextResponse.json(
           {
             found: false,
             cpf: cleanCpf,
             cpf_formatted: formatCPF(cleanCpf),
-            message: `Falha na autenticação da SESAB: ${authErr.message}`,
+            message: isTimeout
+              ? "O servidor da SESAB (afsesab.sesab.ba.gov.br) não respondeu no tempo hábil. Você pode preencher os dados do paciente manualmente."
+              : `Falha na conexão com a SESAB: ${authErr.message}. Preencha os campos manualmente.`,
             auth_error: true,
+            timeout: isTimeout,
           },
-          { status: 502 }
+          { status: 200 }
         );
       }
 
@@ -227,7 +239,8 @@ async function handleCpfLookup(
 
       const doFetch = async () => {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s timeout
+        const timeoutMs = Number(process.env.SESAB_TIMEOUT_MS) || 15000;
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs); // 15s timeout
         return fetch(fetchUrl, {
           method: "GET",
           headers,
@@ -416,14 +429,22 @@ async function handleCpfLookup(
       if (simulate) {
         return handleSimulatedFallback(cleanCpf);
       }
+      const isTimeout =
+        fetchErr?.name === "AbortError" ||
+        String(fetchErr?.message || "").toLowerCase().includes("aborted") ||
+        String(fetchErr?.message || "").toLowerCase().includes("tempo limite");
+
       return NextResponse.json(
         {
           found: false,
           cpf: cleanCpf,
           cpf_formatted: formatCPF(cleanCpf),
-          message: `Erro na comunicação com a API da SESAB: ${fetchErr.message}.`,
+          message: isTimeout
+            ? "O servidor da SESAB não respondeu no prazo limite. Os campos estão liberados para preenchimento manual."
+            : `Erro na comunicação com a API da SESAB: ${fetchErr.message}. Preencha manualmente.`,
+          timeout: isTimeout,
         },
-        { status: 504 }
+        { status: 200 }
       );
     }
   }

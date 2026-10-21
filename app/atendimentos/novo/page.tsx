@@ -97,7 +97,7 @@ export default function NovoProcessoPage() {
   const [newPatientAfsesabStatus, setNewPatientAfsesabStatus] = useState<string | null>(null);
   const [isSearchingQuickCpf, setIsSearchingQuickCpf] = useState(false);
   const [quickCpfFeedback, setQuickCpfFeedback] = useState<{
-    type: "success" | "error";
+    type: "success" | "error" | "info";
     message: string;
   } | null>(null);
   const [newPatientMunicipioId, setNewPatientMunicipioId] = useState("");
@@ -560,16 +560,17 @@ export default function NovoProcessoPage() {
           message: `Dados localizados na base externa (${data.nome || "Paciente"}). ${afStatusMsg} Preenchidos automaticamente!`,
         });
       } else {
+        const isTimeout = (data as any).timeout || data.message?.includes("tempo hábil") || data.message?.includes("manualmente");
         setQuickCpfFeedback({
-          type: "error",
+          type: isTimeout ? "info" : "error",
           message: data.message || "CPF não localizado na base externa.",
         });
       }
     } catch (err) {
       console.error("Erro ao consultar CPF:", err);
       setQuickCpfFeedback({
-        type: "error",
-        message: "Falha na conexão com a API de pesquisa de CPF.",
+        type: "info",
+        message: "Não foi possível conectar à base externa no momento. Prossiga com o preenchimento manual.",
       });
     } finally {
       setIsSearchingQuickCpf(false);
@@ -1791,12 +1792,16 @@ export default function NovoProcessoPage() {
                   <div
                     className={`p-2.5 rounded text-xs space-y-1.5 ${quickCpfFeedback.type === "success"
                       ? "bg-emerald-50 border border-emerald-200 text-emerald-900 mt-2"
-                      : "bg-rose-50 border border-rose-200 text-rose-800 mt-2"
+                      : quickCpfFeedback.type === "info"
+                        ? "bg-blue-50 border border-blue-200 text-blue-900 mt-2"
+                        : "bg-rose-50 border border-rose-200 text-rose-800 mt-2"
                       }`}
                   >
                     <div className="flex items-center gap-2">
                       {quickCpfFeedback.type === "success" ? (
                         <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                      ) : quickCpfFeedback.type === "info" ? (
+                        <AlertCircle className="w-4 h-4 text-blue-600 flex-shrink-0" />
                       ) : (
                         <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
                       )}
