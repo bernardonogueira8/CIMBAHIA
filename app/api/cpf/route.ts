@@ -9,9 +9,7 @@ import {
   getSesabCredentials,
 } from "@/lib/server/token-service";
 
-export const preferredRegion = "gru1";
 export const maxDuration = 30;
-export const dynamic = "force-dynamic";
 
 // Função utilitária para limpar CPF/CNS/IBGE/CEP (somente dígitos)
 function cleanDigits(value: any): string {
