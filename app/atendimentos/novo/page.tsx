@@ -1904,7 +1904,7 @@ export default function NovoProcessoPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Bairro (end_descricao_barrio)
+                    Bairro
                   </label>
                   <Input
                     value={newPatientBairro}
@@ -1916,7 +1916,7 @@ export default function NovoProcessoPage() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    CEP (end_numero_cep)
+                    CEP
                   </label>
                   <Input
                     value={newPatientCep}

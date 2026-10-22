@@ -795,13 +795,13 @@ export default function PacientesPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
-              label="Bairro (end_descricao_barrio)"
+              label="Bairro"
               placeholder="Ex: Centro, Barra, Brotas"
               value={bairro}
               onChange={(e) => setBairro(e.target.value)}
             />
             <Input
-              label="CEP (end_numero_cep)"
+              label="CEP"
               placeholder="00000-000"
               value={cep}
               onChange={(e) => setCep(e.target.value)}
