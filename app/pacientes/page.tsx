@@ -430,11 +430,11 @@ export default function PacientesPage() {
                             )}
                             {patient.afsesab_status === "paciente_existe" ? (
                               <Badge variant="outline" className="text-[9px] bg-emerald-50 text-emerald-800 border-emerald-300 font-normal">
-                                AFSESAB
+                                Cadastrado no AFSESAB
                               </Badge>
                             ) : patient.afsesab_status === "novo_paciente" ? (
                               <Badge variant="outline" className="text-[9px] bg-amber-50 text-amber-800 border-amber-300 font-normal">
-                                Novo AFSESAB
+                                Sem cadastro no AFSESAB
                               </Badge>
                             ) : null}
                           </div>

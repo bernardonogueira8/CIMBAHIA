@@ -280,7 +280,7 @@ export function processSigtapCompetency(
   // Determina competência predominante
   const competency = procedures[0]?.competency || "Competência Atual";
 
-  // Gera lista final de Medicamentos para o PharmaCare
+  // Gera lista final de Medicamentos para o CimBahia
   const medications: Omit<Medication, "id">[] = procedures.map((p) => {
     const compatibleCids = Array.from(procCidMap.get(p.code) || []);
     return {
@@ -319,14 +319,14 @@ export function processSigtapCompetency(
 
 /**
  * Gera script SQL de migração oficial para ser executado no PostgreSQL / Supabase,
- * atualizando as tabelas cids, medications e o relacionamento com idempotência (ON CONFLICT).
+ * atualizando as tabelas cb_cids, medications e o relacionamento com idempotência (ON CONFLICT).
  */
 export function generateSupabaseSigtapMigrationSQL(result: SigtapCompetencyResult): string {
   const timestamp = new Date().toISOString();
   const escapedComp = result.competency.replace(/'/g, "''");
 
   let sql = `-- ==============================================================================
--- PHARMACARE - ATUALIZAÇÃO DE COMPETÊNCIA SIGTAP / CEAF (${escapedComp})
+-- CIMBAHIA - ATUALIZAÇÃO DE COMPETÊNCIA SIGTAP / CEAF (${escapedComp})
 -- Gerado em: ${timestamp}
 -- Total Medicamentos CEAF: ${result.medications.length}
 -- Total Diagnósticos PCDT (CIDs): ${result.cids.length}
@@ -357,7 +357,7 @@ CREATE INDEX IF NOT EXISTS idx_med_auth_cids_code ON public.medication_authorize
 CREATE INDEX IF NOT EXISTS idx_med_auth_cids_cid ON public.medication_authorized_cids(cid_code);
 
 -- 3. Inserção / Atualização de CIDs Oficiais dos PCDTs do CEAF
-INSERT INTO public.cids (code, description, active)
+INSERT INTO public.cb_cids (code, description, active)
 VALUES
 `;
 

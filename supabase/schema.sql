@@ -136,11 +136,8 @@ CREATE TABLE IF NOT EXISTS public.cb_profiles (
 -- 3. CATÁLOGOS CLÍNICOS E TERAPÊUTICOS
 -- ==============================================================================
 
--- 3.1 CIDs e Medicamentos Compartilhados (Reaproveitados da Base Existente)
--- As tabelas public.cids, public.medications e public.medication_authorized_cids
--- são compartilhadas globalmente e consultadas diretamente pelo sistema.
--- Caso ainda não existam no banco, criamos para garantir autonomia:
-CREATE TABLE IF NOT EXISTS public.cids (
+-- 3.1 Catálogo de CIDs do CimBahia e catálogos terapêuticos
+CREATE TABLE IF NOT EXISTS public.cb_cids (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     code TEXT NOT NULL UNIQUE,
     description TEXT NOT NULL,
@@ -149,7 +146,9 @@ CREATE TABLE IF NOT EXISTS public.cids (
     active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_cids_code ON public.cids(code);
+CREATE INDEX IF NOT EXISTS idx_cb_cids_code ON public.cb_cids(code);
+REVOKE ALL ON TABLE public.cb_cids FROM PUBLIC, anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.cb_cids TO authenticated;
 
 CREATE TABLE IF NOT EXISTS public.medications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -305,7 +304,7 @@ CREATE TABLE IF NOT EXISTS public.cb_processo_items (
     medication_id TEXT,
     medication_name TEXT NOT NULL,
     farmaco_substancia TEXT,
-    cid_id UUID REFERENCES public.cids(id) ON DELETE SET NULL,
+    cid_id UUID REFERENCES public.cb_cids(id) ON DELETE SET NULL,
     cid_code TEXT NOT NULL,
     cid_description TEXT,
     cid_nao_informado BOOLEAN NOT NULL DEFAULT false,
@@ -395,6 +394,7 @@ ALTER TABLE public.cb_units ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cb_unit_served_municipalities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cb_unit_responsible_pharmacists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cb_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cb_cids ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cb_other_medications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cb_tipos_parecer ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cb_patients ENABLE ROW LEVEL SECURITY;
@@ -404,65 +404,204 @@ ALTER TABLE public.cb_pareceres ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cb_parecer_versoes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cb_processo_historico ENABLE ROW LEVEL SECURITY;
 
--- Políticas de Leitura
-DROP POLICY IF EXISTS "Permitir leitura cb_origens" ON public.cb_origens;
-CREATE POLICY "Permitir leitura cb_origens" ON public.cb_origens FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_nucleos" ON public.cb_nucleos;
-CREATE POLICY "Permitir leitura cb_nucleos" ON public.cb_nucleos FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_dires" ON public.cb_dires;
-CREATE POLICY "Permitir leitura cb_dires" ON public.cb_dires FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_bases" ON public.cb_bases_regionais;
-CREATE POLICY "Permitir leitura cb_bases" ON public.cb_bases_regionais FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_municipios" ON public.cb_municipios;
-CREATE POLICY "Permitir leitura cb_municipios" ON public.cb_municipios FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_units" ON public.cb_units;
-CREATE POLICY "Permitir leitura cb_units" ON public.cb_units FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_unit_served_municipalities" ON public.cb_unit_served_municipalities;
-CREATE POLICY "Permitir leitura cb_unit_served_municipalities" ON public.cb_unit_served_municipalities FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_unit_responsible_pharmacists" ON public.cb_unit_responsible_pharmacists;
-CREATE POLICY "Permitir leitura cb_unit_responsible_pharmacists" ON public.cb_unit_responsible_pharmacists FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_profiles" ON public.cb_profiles;
-CREATE POLICY "Permitir leitura cb_profiles" ON public.cb_profiles FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_other_medications" ON public.cb_other_medications;
-CREATE POLICY "Permitir leitura cb_other_medications" ON public.cb_other_medications FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_tipos_parecer" ON public.cb_tipos_parecer;
-CREATE POLICY "Permitir leitura cb_tipos_parecer" ON public.cb_tipos_parecer FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_patients" ON public.cb_patients;
-CREATE POLICY "Permitir leitura cb_patients" ON public.cb_patients FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_processos" ON public.cb_processos;
-CREATE POLICY "Permitir leitura cb_processos" ON public.cb_processos FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_processo_items" ON public.cb_processo_items;
-CREATE POLICY "Permitir leitura cb_processo_items" ON public.cb_processo_items FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_pareceres" ON public.cb_pareceres;
-CREATE POLICY "Permitir leitura cb_pareceres" ON public.cb_pareceres FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_parecer_versoes" ON public.cb_parecer_versoes;
-CREATE POLICY "Permitir leitura cb_parecer_versoes" ON public.cb_parecer_versoes FOR SELECT TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir leitura cb_processo_historico" ON public.cb_processo_historico;
-CREATE POLICY "Permitir leitura cb_processo_historico" ON public.cb_processo_historico FOR SELECT TO authenticated, anon USING (true);
+-- Identifica a conta autenticada por UUID (novas contas) ou e-mail (perfis legados).
+CREATE OR REPLACE FUNCTION public.cb_current_user_role()
+RETURNS TEXT
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+    SELECT p.role
+    FROM public.cb_profiles p
+    WHERE p.active IS TRUE
+      AND (
+        p.id = auth.uid()
+        OR lower(p.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+      )
+    ORDER BY (p.id = auth.uid()) DESC
+    LIMIT 1
+$$;
 
--- Políticas de Escrita
-DROP POLICY IF EXISTS "Permitir escrita cb_patients" ON public.cb_patients;
-CREATE POLICY "Permitir escrita cb_patients" ON public.cb_patients FOR ALL TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir escrita cb_processos" ON public.cb_processos;
-CREATE POLICY "Permitir escrita cb_processos" ON public.cb_processos FOR ALL TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir escrita cb_processo_items" ON public.cb_processo_items;
-CREATE POLICY "Permitir escrita cb_processo_items" ON public.cb_processo_items FOR ALL TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir escrita cb_pareceres" ON public.cb_pareceres;
-CREATE POLICY "Permitir escrita cb_pareceres" ON public.cb_pareceres FOR ALL TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir escrita cb_parecer_versoes" ON public.cb_parecer_versoes;
-CREATE POLICY "Permitir escrita cb_parecer_versoes" ON public.cb_parecer_versoes FOR ALL TO authenticated, anon USING (true);
-DROP POLICY IF EXISTS "Permitir escrita cb_processo_historico" ON public.cb_processo_historico;
-CREATE POLICY "Permitir escrita cb_processo_historico" ON public.cb_processo_historico FOR ALL TO authenticated, anon USING (true);
+CREATE OR REPLACE FUNCTION public.cb_current_user_unit_id()
+RETURNS UUID
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+    SELECT p.unit_id
+    FROM public.cb_profiles p
+    WHERE p.active IS TRUE
+      AND (
+        p.id = auth.uid()
+        OR lower(p.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+      )
+    ORDER BY (p.id = auth.uid()) DESC
+    LIMIT 1
+$$;
+
+CREATE OR REPLACE FUNCTION public.cb_is_active_user()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+    SELECT public.cb_current_user_role() IS NOT NULL
+$$;
+
+CREATE OR REPLACE FUNCTION public.cb_can_manage()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+    SELECT public.cb_current_user_role() IN ('admin', 'gestor')
+$$;
+
+CREATE OR REPLACE FUNCTION public.cb_can_access_unit(target_unit_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+    SELECT public.cb_is_active_user()
+       AND (
+         public.cb_current_user_role() IN ('admin', 'gestor')
+         OR (
+           target_unit_id IS NOT NULL
+           AND target_unit_id = public.cb_current_user_unit_id()
+         )
+       )
+$$;
+
+REVOKE ALL ON FUNCTION public.cb_current_user_role() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.cb_current_user_unit_id() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.cb_is_active_user() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.cb_can_manage() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.cb_can_access_unit(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.cb_current_user_role() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.cb_current_user_unit_id() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.cb_is_active_user() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.cb_can_manage() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.cb_can_access_unit(UUID) TO authenticated;
+
+-- Leitura operacional só para contas ativas; perfis ficam visíveis ao próprio
+-- usuário e à gestão.
+DROP POLICY IF EXISTS "Permitir leitura cb_origens" ON public.cb_origens;
+CREATE POLICY "Permitir leitura cb_origens" ON public.cb_origens FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_nucleos" ON public.cb_nucleos;
+CREATE POLICY "Permitir leitura cb_nucleos" ON public.cb_nucleos FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_dires" ON public.cb_dires;
+CREATE POLICY "Permitir leitura cb_dires" ON public.cb_dires FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_bases" ON public.cb_bases_regionais;
+CREATE POLICY "Permitir leitura cb_bases" ON public.cb_bases_regionais FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_municipios" ON public.cb_municipios;
+CREATE POLICY "Permitir leitura cb_municipios" ON public.cb_municipios FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_units" ON public.cb_units;
+CREATE POLICY "Permitir leitura cb_units" ON public.cb_units FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_unit_served_municipalities" ON public.cb_unit_served_municipalities;
+CREATE POLICY "Permitir leitura cb_unit_served_municipalities" ON public.cb_unit_served_municipalities FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_unit_responsible_pharmacists" ON public.cb_unit_responsible_pharmacists;
+CREATE POLICY "Permitir leitura cb_unit_responsible_pharmacists" ON public.cb_unit_responsible_pharmacists FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_profiles" ON public.cb_profiles;
+CREATE POLICY "Permitir leitura cb_profiles" ON public.cb_profiles FOR SELECT TO authenticated USING (
+    id = auth.uid()
+    OR lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+    OR public.cb_can_manage()
+);
+DROP POLICY IF EXISTS "Permitir leitura cb_cids" ON public.cb_cids;
+CREATE POLICY "Permitir leitura cb_cids" ON public.cb_cids FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_other_medications" ON public.cb_other_medications;
+CREATE POLICY "Permitir leitura cb_other_medications" ON public.cb_other_medications FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_tipos_parecer" ON public.cb_tipos_parecer;
+CREATE POLICY "Permitir leitura cb_tipos_parecer" ON public.cb_tipos_parecer FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_patients" ON public.cb_patients;
+CREATE POLICY "Permitir leitura cb_patients" ON public.cb_patients FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_processos" ON public.cb_processos;
+CREATE POLICY "Permitir leitura cb_processos" ON public.cb_processos FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_processo_items" ON public.cb_processo_items;
+CREATE POLICY "Permitir leitura cb_processo_items" ON public.cb_processo_items FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_pareceres" ON public.cb_pareceres;
+CREATE POLICY "Permitir leitura cb_pareceres" ON public.cb_pareceres FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_parecer_versoes" ON public.cb_parecer_versoes;
+CREATE POLICY "Permitir leitura cb_parecer_versoes" ON public.cb_parecer_versoes FOR SELECT TO authenticated USING (public.cb_is_active_user());
+DROP POLICY IF EXISTS "Permitir leitura cb_processo_historico" ON public.cb_processo_historico;
+CREATE POLICY "Permitir leitura cb_processo_historico" ON public.cb_processo_historico FOR SELECT TO authenticated USING (public.cb_is_active_user());
+
+-- Escrita de dados administrativos limitada à gestão.
 DROP POLICY IF EXISTS "Permitir escrita cb_profiles" ON public.cb_profiles;
-CREATE POLICY "Permitir escrita cb_profiles" ON public.cb_profiles FOR ALL TO authenticated, anon USING (true);
+CREATE POLICY "Permitir escrita cb_profiles" ON public.cb_profiles FOR ALL TO authenticated USING (public.cb_can_manage()) WITH CHECK (public.cb_can_manage());
+DROP POLICY IF EXISTS "Permitir escrita cb_cids" ON public.cb_cids;
+CREATE POLICY "Permitir escrita cb_cids" ON public.cb_cids FOR ALL TO authenticated
+    USING (public.cb_current_user_role() = 'admin')
+    WITH CHECK (public.cb_current_user_role() = 'admin');
 DROP POLICY IF EXISTS "Permitir escrita cb_other_medications" ON public.cb_other_medications;
-CREATE POLICY "Permitir escrita cb_other_medications" ON public.cb_other_medications FOR ALL TO authenticated, anon USING (true);
+CREATE POLICY "Permitir escrita cb_other_medications" ON public.cb_other_medications FOR ALL TO authenticated USING (public.cb_can_manage()) WITH CHECK (public.cb_can_manage());
 DROP POLICY IF EXISTS "Permitir escrita cb_tipos_parecer" ON public.cb_tipos_parecer;
-CREATE POLICY "Permitir escrita cb_tipos_parecer" ON public.cb_tipos_parecer FOR ALL TO authenticated, anon USING (true);
+CREATE POLICY "Permitir escrita cb_tipos_parecer" ON public.cb_tipos_parecer FOR ALL TO authenticated USING (public.cb_can_manage()) WITH CHECK (public.cb_can_manage());
 DROP POLICY IF EXISTS "Permitir escrita cb_units" ON public.cb_units;
-CREATE POLICY "Permitir escrita cb_units" ON public.cb_units FOR ALL TO authenticated, anon USING (true);
+CREATE POLICY "Permitir escrita cb_units" ON public.cb_units FOR ALL TO authenticated USING (public.cb_can_manage()) WITH CHECK (public.cb_can_manage());
 DROP POLICY IF EXISTS "Permitir escrita cb_origens" ON public.cb_origens;
-CREATE POLICY "Permitir escrita cb_origens" ON public.cb_origens FOR ALL TO authenticated, anon USING (true);
+CREATE POLICY "Permitir escrita cb_origens" ON public.cb_origens FOR ALL TO authenticated USING (public.cb_can_manage()) WITH CHECK (public.cb_can_manage());
+
+-- Pacientes e processos só podem ser alterados na unidade do usuário; gestão
+-- mantém acesso transversal para administração do sistema.
+DROP POLICY IF EXISTS "Permitir escrita cb_patients" ON public.cb_patients;
+CREATE POLICY "Permitir escrita cb_patients" ON public.cb_patients FOR ALL TO authenticated
+    USING (public.cb_can_access_unit(unit_id))
+    WITH CHECK (public.cb_can_access_unit(unit_id));
+DROP POLICY IF EXISTS "Permitir escrita cb_processos" ON public.cb_processos;
+CREATE POLICY "Permitir escrita cb_processos" ON public.cb_processos FOR ALL TO authenticated
+    USING (public.cb_can_access_unit(unidade_id))
+    WITH CHECK (public.cb_can_access_unit(unidade_id));
+DROP POLICY IF EXISTS "Permitir escrita cb_processo_items" ON public.cb_processo_items;
+CREATE POLICY "Permitir escrita cb_processo_items" ON public.cb_processo_items FOR ALL TO authenticated
+    USING (EXISTS (
+        SELECT 1 FROM public.cb_processos p
+        WHERE p.id = processo_id AND public.cb_can_access_unit(p.unidade_id)
+    ))
+    WITH CHECK (EXISTS (
+        SELECT 1 FROM public.cb_processos p
+        WHERE p.id = processo_id AND public.cb_can_access_unit(p.unidade_id)
+    ));
+DROP POLICY IF EXISTS "Permitir escrita cb_pareceres" ON public.cb_pareceres;
+CREATE POLICY "Permitir escrita cb_pareceres" ON public.cb_pareceres FOR ALL TO authenticated
+    USING (EXISTS (
+        SELECT 1 FROM public.cb_processos p
+        WHERE p.id = processo_id AND public.cb_can_access_unit(p.unidade_id)
+    ))
+    WITH CHECK (EXISTS (
+        SELECT 1 FROM public.cb_processos p
+        WHERE p.id = processo_id AND public.cb_can_access_unit(p.unidade_id)
+    ));
+DROP POLICY IF EXISTS "Permitir escrita cb_parecer_versoes" ON public.cb_parecer_versoes;
+CREATE POLICY "Permitir escrita cb_parecer_versoes" ON public.cb_parecer_versoes FOR ALL TO authenticated
+    USING (EXISTS (
+        SELECT 1
+        FROM public.cb_pareceres pa
+        JOIN public.cb_processos p ON p.id = pa.processo_id
+        WHERE pa.id = parecer_id AND public.cb_can_access_unit(p.unidade_id)
+    ))
+    WITH CHECK (EXISTS (
+        SELECT 1
+        FROM public.cb_pareceres pa
+        JOIN public.cb_processos p ON p.id = pa.processo_id
+        WHERE pa.id = parecer_id AND public.cb_can_access_unit(p.unidade_id)
+    ));
+DROP POLICY IF EXISTS "Permitir escrita cb_processo_historico" ON public.cb_processo_historico;
+CREATE POLICY "Permitir escrita cb_processo_historico" ON public.cb_processo_historico FOR ALL TO authenticated
+    USING (EXISTS (
+        SELECT 1 FROM public.cb_processos p
+        WHERE p.id = processo_id AND public.cb_can_access_unit(p.unidade_id)
+    ))
+    WITH CHECK (EXISTS (
+        SELECT 1 FROM public.cb_processos p
+        WHERE p.id = processo_id AND public.cb_can_access_unit(p.unidade_id)
+    ));
 
 -- ==============================================================================
 -- 8. CARGA DE DADOS INICIAIS (SEED INSTITUCIONAL SESAB / CIMBAHIA)

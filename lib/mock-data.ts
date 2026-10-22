@@ -6,7 +6,6 @@
 import {
   Unit,
   Profile,
-  CID,
   Medication,
   OtherMedication,
   TipoParecer,
@@ -118,31 +117,6 @@ export const INITIAL_PROFILES: Profile[] = [
 // ------------------------------------------------------------------------------
 // 2. CATÁLOGOS CLÍNICOS E DOMÍNIOS (CIDS, CEAF, OUTROS MEDICAMENTOS, PARECERES)
 // ------------------------------------------------------------------------------
-
-export const INITIAL_CIDS: CID[] = [
-  { id: "cid-1", code: "M05.8", description: "Outras artrites reumatoides soropositivas", chapter: "Doenças do sistema osteomuscular", group_name: "Artroplastias e artropatias", active: true },
-  { id: "cid-2", code: "M06.0", description: "Artrite reumatoide soronegativa", chapter: "Doenças do sistema osteomuscular", group_name: "Artrites reumatoides", active: true },
-  { id: "cid-3", code: "M45", description: "Espondilite ancilosante", chapter: "Doenças do sistema osteomuscular", group_name: "Espondilopatias", active: true },
-  { id: "cid-4", code: "M32.1", description: "Lúpus eritematoso sistêmico com comprometimento de órgãos", chapter: "Doenças do sistema osteomuscular", group_name: "Doenças sistêmicas do tecido conjuntivo", active: true },
-  { id: "cid-5", code: "L40.0", description: "Psoríase vulgar", chapter: "Doenças da pele", group_name: "Psoríase", active: true },
-  { id: "cid-6", code: "L40.5", description: "Artropatia psoriásica", chapter: "Doenças da pele", group_name: "Psoríase", active: true },
-  { id: "cid-7", code: "K50.0", description: "Doença de Crohn do intestino delgado", chapter: "Doenças do aparelho digestivo", group_name: "Enterite e colite não infecciosas", active: true },
-  { id: "cid-8", code: "K50.1", description: "Doença de Crohn do intestino grosso (cólon)", chapter: "Doenças do aparelho digestivo", group_name: "Enterite e colite não infecciosas", active: true },
-  { id: "cid-9", code: "K51.0", description: "Pancolite ulcerativa (Retocolite Ulcerativa)", chapter: "Doenças do aparelho digestivo", group_name: "Colite ulcerativa", active: true },
-  { id: "cid-10", code: "G35", description: "Esclerose múltipla", chapter: "Doenças do sistema nervoso", group_name: "Doenças desmielinizantes", active: true },
-  { id: "cid-11", code: "G20", description: "Doença de Parkinson", chapter: "Doenças do sistema nervoso", group_name: "Transtornos extrapiramidais", active: true },
-  { id: "cid-12", code: "G31.8", description: "Doença de Alzheimer (Outras degenerações especificadas)", chapter: "Doenças do sistema nervoso", group_name: "Degenerações do sistema nervoso", active: true },
-  { id: "cid-13", code: "E10.9", description: "Diabetes mellitus insulino-dependente sem complicações", chapter: "Doenças endócrinas", group_name: "Diabetes mellitus", active: true },
-  { id: "cid-14", code: "E23.0", description: "Hipopituitarismo / Deficiência do hormônio de crescimento (GH)", chapter: "Doenças endócrinas", group_name: "Transtornos da hipófise", active: true },
-  { id: "cid-15", code: "B18.1", description: "Hepatite crônica viral B sem agente Delta", chapter: "Doenças infecciosas", group_name: "Hepatites virais", active: true },
-  { id: "cid-16", code: "B18.2", description: "Hepatite viral crônica C", chapter: "Doenças infecciosas", group_name: "Hepatites virais", active: true },
-  { id: "cid-17", code: "N18.0", description: "Doença renal crônica estágio terminal (DRC)", chapter: "Doenças do aparelho geniturinário", group_name: "Insuficiência renal", active: true },
-  { id: "cid-18", code: "D59.5", description: "Hemoglobinúria paroxística noturna (HPN)", chapter: "Doenças do sangue", group_name: "Anemias hemolíticas", active: true },
-  { id: "cid-19", code: "D61.9", description: "Aplasia medular não especificada", chapter: "Doenças do sangue", group_name: "Outras anemias aplásticas", active: true },
-  { id: "cid-20", code: "M81.0", description: "Osteoporose pós-menopausa com alto risco de fratura", chapter: "Doenças do sistema osteomuscular", group_name: "Transtornos da densidade óssea", active: true },
-  { id: "cid-21", code: "E84.0", description: "Fibrose cística com manifestações pulmonares", chapter: "Doenças endócrinas e metabólicas", group_name: "Fibrose cística", active: true },
-  { id: "cid-22", code: "I27.0", description: "Hipertensão pulmonar primária", chapter: "Doenças do aparelho circulatório", group_name: "Outras formas de doença cardíaca pulmonar", active: true },
-];
 
 export const INITIAL_MEDICATIONS: Medication[] = [
   { id: "med-1", sigtap_code: "0604380014", name: "Adalimumabe 40mg/0,8mL", pharmaceutical_form: "Solução Injetável em seringa preenchida", component: "CEAF Grupo 1A", active: true, compatible_cid_codes: ["M05.8", "M06.0", "M45", "L40.0", "L40.5", "K50.0", "K50.1", "K51.0"] },

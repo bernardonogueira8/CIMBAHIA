@@ -907,12 +907,11 @@ export default function UnidadesEstruturaPage() {
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
                   <tr>
-                    <th className="py-2.5 px-3">Município / UF</th>
+                    <th className="py-2.5 px-3">Município</th>
                     <th className="py-2.5 px-3">Código IBGE</th>
-                    <th className="py-2.5 px-3">Base Regional (BRS)</th>
+                    <th className="py-2.5 px-3">Unidade Regional (BRS/NRS)</th>
                     <th className="py-2.5 px-3">Núcleo (NRS)</th>
                     <th className="py-2.5 px-3">Macrorregião</th>
-                    <th className="py-2.5 px-3">Equipe / RT Responsável</th>
                     {isGestor && <th className="py-2.5 px-3 text-right">Ação</th>}
                   </tr>
                 </thead>
@@ -920,24 +919,16 @@ export default function UnidadesEstruturaPage() {
                   {pagedMunicipios.map((m) => (
                     <tr key={m.id} className="hover:bg-slate-50 transition-colors">
                       <td className="py-2.5 px-3 font-semibold text-slate-900">
-                        {m.name} - BA
+                        {m.name}
                       </td>
                       <td className="py-2.5 px-3 font-mono text-slate-500">{m.ibge_code}</td>
                       <td className="py-2.5 px-3">
                         <Badge variant="outline" className="text-[10px] bg-slate-50 text-slate-800">
-                          {m.brs_name ? `BRS ${m.brs_name.replace(/^BRS\s+/i, "")}` : "Não vinculada"}
+                          {m.brs_name ? `${m.brs_name.replace(/^BRS\s+/i, "")}` : "Não vinculada"}
                         </Badge>
                       </td>
                       <td className="py-2.5 px-3 text-slate-600">{m.nrs_name || "NRS"}</td>
                       <td className="py-2.5 px-3 text-slate-600">{m.macroregion || "Bahia"}</td>
-                      <td className="py-2.5 px-3">
-                        <div className="flex items-center gap-1.5 text-slate-700">
-                          <Stethoscope className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />
-                          <span className="font-medium text-xs text-slate-800">
-                            {m.responsible_pharmacist || "Equipe da Base Regional"}
-                          </span>
-                        </div>
-                      </td>
                       {isGestor && (
                         <td className="py-2.5 px-3 text-right">
                           <Button

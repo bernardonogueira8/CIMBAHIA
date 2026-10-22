@@ -35,7 +35,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
-import { Patient, ProcessoItem, Processo, Municipio, CpfLookupResult } from "@/lib/types";
+import { Patient, ProcessoItem, Processo, Municipio, CpfLookupResult, CID } from "@/lib/types";
 
 const formatCPF = (value: string) => {
   return value
@@ -53,7 +53,6 @@ export default function NovoProcessoPage() {
     origens,
     units,
     municipios,
-    cids,
     farmacos,
     processos,
     currentUser,
@@ -115,7 +114,10 @@ export default function NovoProcessoPage() {
   const [cidInput, setCidInput] = useState("");
   const [isCidDropdownOpen, setIsCidDropdownOpen] = useState(false);
   const [cidNaoInformado, setCidNaoInformado] = useState(false);
-  const [selectedCidId, setSelectedCidId] = useState("");
+  const [selectedCid, setSelectedCid] = useState<CID | null>(null);
+  const [cidResults, setCidResults] = useState<CID[]>([]);
+  const [isLoadingCids, setIsLoadingCids] = useState(false);
+  const [cidSearchError, setCidSearchError] = useState("");
 
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -140,7 +142,7 @@ export default function NovoProcessoPage() {
     setIsFarmacoDropdownOpen(false);
     setCidInput("");
     setIsCidDropdownOpen(false);
-    setSelectedCidId("");
+    setSelectedCid(null);
     setCidNaoInformado(false);
     setErrorMessage("");
   }, []);
@@ -402,14 +404,43 @@ export default function NovoProcessoPage() {
       .slice(0, 15);
   }, [municipios, municipioSearchInput]);
 
-  // CIDs filtrados (busca rápida na base oficial de 4.000+ CIDs)
-  const filteredCids = useMemo(() => {
-    if (!cidInput.trim()) return cids.slice(0, 10);
-    const term = cidInput.toLowerCase().trim();
-    return cids
-      .filter((c) => c.code.toLowerCase().includes(term) || c.description.toLowerCase().includes(term))
-      .slice(0, 15);
-  }, [cids, cidInput]);
+  useEffect(() => {
+    if (!isCidDropdownOpen || cidNaoInformado) return;
+
+    const abortController = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      setIsLoadingCids(true);
+      setCidSearchError("");
+
+      try {
+        const params = new URLSearchParams({ q: cidInput.trim(), page: "1", limit: "15" });
+        const response = await fetch(`/api/cids?${params}`, {
+          signal: abortController.signal,
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.message || "Não foi possível consultar o catálogo de CIDs.");
+        }
+
+        setCidResults(payload.cids || []);
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
+        console.error("Erro ao consultar CIDs no Supabase:", error);
+        setCidResults([]);
+        setCidSearchError(
+          error instanceof Error ? error.message : "Não foi possível carregar os CIDs."
+        );
+      } finally {
+        if (!abortController.signal.aborted) setIsLoadingCids(false);
+      }
+    }, 200);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      abortController.abort();
+    };
+  }, [cidInput, cidNaoInformado, isCidDropdownOpen]);
 
   // Fármacos filtrados com autocomplete (Base Oficial 4.086 Fármacos.xlsx)
   const filteredFarmacos = useMemo(() => {
@@ -433,17 +464,11 @@ export default function NovoProcessoPage() {
     let cidId = undefined;
 
     if (!cidNaoInformado) {
-      if (!selectedCidId && !cidInput.trim()) {
+      if (!selectedCid && !cidInput.trim()) {
         alert("Selecione um CID-10 ou marque a opção 'CID não informado'.");
         return;
       }
-      const cleanInput = cidInput.trim().toLowerCase();
-      const foundCid = cids.find(
-        (c) =>
-          c.id === selectedCidId ||
-          c.code.toLowerCase() === cleanInput ||
-          `${c.code.toLowerCase()} - ${c.description.toLowerCase()}` === cleanInput
-      );
+      const foundCid = selectedCid;
       if (foundCid) {
         cidCode = foundCid.code;
         cidDesc = foundCid.description;
@@ -477,7 +502,7 @@ export default function NovoProcessoPage() {
     setIsFarmacoDropdownOpen(false);
     setCidInput("");
     setIsCidDropdownOpen(false);
-    setSelectedCidId("");
+    setSelectedCid(null);
     setCidNaoInformado(false);
   };
 
@@ -1456,7 +1481,7 @@ export default function NovoProcessoPage() {
                           setCidNaoInformado(e.target.checked);
                           if (e.target.checked) {
                             setCidInput("");
-                            setSelectedCidId("");
+                            setSelectedCid(null);
                             setIsCidDropdownOpen(false);
                           }
                         }}
@@ -1481,33 +1506,43 @@ export default function NovoProcessoPage() {
                         value={cidInput}
                         onChange={(e) => {
                           setCidInput(e.target.value);
-                          setSelectedCidId("");
+                          setSelectedCid(null);
                           setIsCidDropdownOpen(true);
                         }}
                         onFocus={() => setIsCidDropdownOpen(true)}
                         className="pl-9 text-xs"
                       />
 
-                      {isCidDropdownOpen && filteredCids.length > 0 && (
+                      {isCidDropdownOpen && (
                         <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 max-h-56 overflow-y-auto">
-                          {filteredCids.map((c) => (
-                            <div
-                              key={c.id}
-                              onClick={() => {
-                                setSelectedCidId(c.id);
-                                setCidInput(`${c.code} - ${c.description}`);
-                                setIsCidDropdownOpen(false);
-                              }}
-                              className="p-2.5 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0 text-xs"
-                            >
-                              <div className="font-medium text-slate-900 flex items-center gap-2">
-                                <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 font-mono text-[10px] shrink-0">
-                                  {c.code}
-                                </Badge>
-                                <span className="truncate">{c.description}</span>
+                          {isLoadingCids ? (
+                            <div className="p-3 text-xs text-slate-500">Buscando no Supabase...</div>
+                          ) : cidSearchError ? (
+                            <div className="p-3 text-xs text-rose-700">{cidSearchError}</div>
+                          ) : cidResults.length > 0 ? (
+                            cidResults.map((c) => (
+                              <div
+                                key={c.id}
+                                onClick={() => {
+                                  setSelectedCid(c);
+                                  setCidInput(`${c.code} - ${c.description}`);
+                                  setIsCidDropdownOpen(false);
+                                }}
+                                className="p-2.5 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0 text-xs"
+                              >
+                                <div className="font-medium text-slate-900 flex items-center gap-2">
+                                  <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 font-mono text-[10px] shrink-0">
+                                    {c.code}
+                                  </Badge>
+                                  <span className="truncate">{c.description}</span>
+                                </div>
                               </div>
+                            ))
+                          ) : (
+                            <div className="p-3 text-xs text-slate-500">
+                              Nenhum CID encontrado em cb_cids.
                             </div>
-                          ))}
+                          )}
                         </div>
                       )}
                     </div>

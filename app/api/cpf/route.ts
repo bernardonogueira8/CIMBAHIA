@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { INITIAL_BAHIA_MUNICIPIOS } from "@/lib/territory-data";
 import { CpfLookupResult } from "@/lib/types";
+import { createClient } from "@/lib/supabase/server";
 import {
   getSesabAuthHeaders,
   buildBuscarPacienteUrl,
@@ -10,6 +11,84 @@ import {
 } from "@/lib/server/token-service";
 
 export const maxDuration = 30;
+
+function noStore(response: NextResponse): NextResponse {
+  response.headers.set("Cache-Control", "private, no-store, max-age=0");
+  return response;
+}
+
+async function requireActiveProfile(): Promise<NextResponse | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError) {
+    console.error("Falha ao validar a sessão da consulta de CPF:", authError.message);
+    return NextResponse.json(
+      { message: "Não foi possível validar a sessão." },
+      { status: 503 }
+    );
+  }
+
+  if (!user) {
+    return NextResponse.json(
+      { message: "Autenticação necessária." },
+      { status: 401 }
+    );
+  }
+
+  const { data: profileById, error: profileIdError } = await supabase
+    .from("cb_profiles")
+    .select("id, role")
+    .eq("id", user.id)
+    .eq("active", true)
+    .maybeSingle();
+
+  if (profileIdError) {
+    console.error("Falha ao validar o perfil da consulta de CPF:", profileIdError.message);
+    return NextResponse.json(
+      { message: "Não foi possível validar o perfil de acesso." },
+      { status: 503 }
+    );
+  }
+
+  let profile = profileById;
+
+  if (!profile && user.email) {
+    const { data: profileByEmail, error: profileEmailError } = await supabase
+      .from("cb_profiles")
+      .select("id, role")
+      .eq("email", user.email)
+      .eq("active", true)
+      .maybeSingle();
+
+    if (profileEmailError) {
+      console.error("Falha ao validar o perfil da consulta de CPF:", profileEmailError.message);
+      return NextResponse.json(
+        { message: "Não foi possível validar o perfil de acesso." },
+        { status: 503 }
+      );
+    }
+
+    profile = profileByEmail;
+  }
+
+  if (
+    profile &&
+    ["admin", "gestor", "farmaceutico", "pharmacist", "administrativo"].includes(
+      profile.role
+    )
+  ) {
+    return null;
+  }
+
+  return NextResponse.json(
+    { message: "Acesso não autorizado." },
+    { status: 403 }
+  );
+}
 
 // Função utilitária para limpar CPF/CNS/IBGE/CEP (somente dígitos)
 function cleanDigits(value: any): string {
@@ -145,14 +224,17 @@ function resolveBahiaMunicipio(
 }
 
 export async function GET(request: Request) {
+  const authResponse = await requireActiveProfile();
+  if (authResponse) return noStore(authResponse);
+
   const { searchParams } = new URL(request.url);
 
   // Diagnóstico rápido de conexão e tokens
   if (searchParams.get("diagnostics") === "true") {
-    return NextResponse.json({
+    return noStore(NextResponse.json({
       status: "ok",
       diagnostics: getAuthDiagnostics(),
-    });
+    }));
   }
 
   const cpfParam = searchParams.get("cpf");
@@ -160,10 +242,15 @@ export async function GET(request: Request) {
   const unidadeParam = searchParams.get("unidade_selecionada_id") || "9";
   const simulateParam = searchParams.get("simulate") === "true";
 
-  return handleCpfLookup(cpfParam, cnsParam, unidadeParam, simulateParam);
+  return noStore(
+    await handleCpfLookup(cpfParam, cnsParam, unidadeParam, simulateParam)
+  );
 }
 
 export async function POST(request: Request) {
+  const authResponse = await requireActiveProfile();
+  if (authResponse) return noStore(authResponse);
+
   try {
     const body = await request.json().catch(() => ({}));
     const cpfParam = body.cpf || body.CPF;
@@ -171,12 +258,14 @@ export async function POST(request: Request) {
     const unidadeParam = body.unidade_selecionada_id || body.unidadeId || "9";
     const simulateParam = Boolean(body.simulate);
 
-    return handleCpfLookup(cpfParam, cnsParam, unidadeParam, simulateParam);
+    return noStore(
+      await handleCpfLookup(cpfParam, cnsParam, unidadeParam, simulateParam)
+    );
   } catch (error) {
-    return NextResponse.json(
+    return noStore(NextResponse.json(
       { found: false, message: "Erro ao processar corpo da requisição." },
       { status: 400 }
-    );
+    ));
   }
 }
 
@@ -230,9 +319,7 @@ async function handleCpfLookup(
         );
       }
 
-      // Constrói a URL exata da SESAB:
-      // http://afsesab.sesab.ba.gov.br/api/v1/pacientes/buscar-paciente?cns=&cpf=...&unidade_selecionada_id=9
-      let fetchUrl = buildBuscarPacienteUrl(cleanCpf, cnsParam, unidadeParam);
+      const fetchUrl = buildBuscarPacienteUrl(cleanCpf, cnsParam, unidadeParam);
       let headers: Record<string, string> = { ...authInfo.headers };
 
       const doFetch = async () => {
@@ -243,6 +330,7 @@ async function handleCpfLookup(
           method: "GET",
           headers,
           signal: controller.signal,
+          redirect: "error",
         }).finally(() => clearTimeout(timeoutId));
       };
 

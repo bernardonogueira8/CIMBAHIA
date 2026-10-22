@@ -25,6 +25,21 @@ let inFlightToken2Promise: Promise<string> | null = null;
 // Margem de renovação antes da expiração (60 segundos)
 const RENEWAL_BUFFER_MS = 60 * 1000;
 
+function requireHttpsUrl(value: string, settingName: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${settingName} deve conter uma URL válida.`);
+  }
+
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new Error(`${settingName} deve usar HTTPS e não pode conter credenciais.`);
+  }
+
+  return url.toString().replace(/\/+$/, "");
+}
+
 /**
  * Normaliza e resolve a Base URL da SESAB
  */
@@ -32,10 +47,13 @@ export function getSesabBaseUrl(): string {
   const base =
     process.env.SESAB_BASE_URL ||
     process.env.AFSESAB_BASE_URL ||
-    process.env.CPF_API_BASE_URL ||
-    "http://afsesab.sesab.ba.gov.br";
+    process.env.CPF_API_BASE_URL;
 
-  return base.replace(/\/+$/, "");
+  if (!base) {
+    throw new Error("Configure SESAB_BASE_URL com o endereço HTTPS oficial da SESAB.");
+  }
+
+  return requireHttpsUrl(base, "SESAB_BASE_URL");
 }
 
 /**
@@ -154,21 +172,22 @@ export async function getValidToken1(forceRefresh = false): Promise<string> {
     return inFlightToken1Promise;
   }
 
-  inFlightToken1Promise = (async () => {
-    const baseUrl = getSesabBaseUrl();
-    const loginUrl =
-      process.env.SESAB_LOGIN_URL ||
+  const baseUrl = getSesabBaseUrl();
+  const loginUrl = requireHttpsUrl(
+    process.env.SESAB_LOGIN_URL ||
       process.env.AUTH_API_1_URL ||
-      `${baseUrl}/api/v1/login`;
+      `${baseUrl}/api/v1/login`,
+    "SESAB_LOGIN_URL"
+  );
+  const { email, password } = getSesabCredentials();
 
-    const { email, password } = getSesabCredentials();
+  if (!email || !password) {
+    throw new Error(
+      "Credenciais SESAB não configuradas no .env.local (SESAB_API_EMAIL e SESAB_API_PASSWORD)."
+    );
+  }
 
-    if (!email || !password) {
-      throw new Error(
-        "Credenciais SESAB não configuradas no .env.local (SESAB_API_EMAIL e SESAB_API_PASSWORD)."
-      );
-    }
-
+  inFlightToken1Promise = (async () => {
     const payload = {
       email: email.trim(),
       password: password.trim(),
@@ -189,6 +208,7 @@ export async function getValidToken1(forceRefresh = false): Promise<string> {
         },
         body: JSON.stringify(payload),
         signal: controller.signal,
+        redirect: "error",
       });
 
       if (!resp.ok) {
@@ -250,21 +270,22 @@ export async function getValidToken2(forceRefresh = false): Promise<string> {
     return inFlightToken2Promise;
   }
 
-  inFlightToken2Promise = (async () => {
-    const baseUrl = getSesabBaseUrl();
-    const logisticaUrl =
-      process.env.SESAB_LOGISTICA_URL ||
+  const baseUrl = getSesabBaseUrl();
+  const logisticaUrl = requireHttpsUrl(
+    process.env.SESAB_LOGISTICA_URL ||
       process.env.AUTH_API_2_URL ||
-      `${baseUrl}/logistica/login`;
+      `${baseUrl}/logistica/login`,
+    "SESAB_LOGISTICA_URL"
+  );
+  const { email, password } = getSesabCredentials();
 
-    const { email, password } = getSesabCredentials();
+  if (!email || !password) {
+    throw new Error(
+      "Credenciais SESAB não configuradas no .env.local (SESAB_API_EMAIL e SESAB_API_PASSWORD)."
+    );
+  }
 
-    if (!email || !password) {
-      throw new Error(
-        "Credenciais SESAB não configuradas no .env.local (SESAB_API_EMAIL e SESAB_API_PASSWORD)."
-      );
-    }
-
+  inFlightToken2Promise = (async () => {
     const payload = {
       email: email.trim(),
       password: password.trim(),
@@ -285,6 +306,7 @@ export async function getValidToken2(forceRefresh = false): Promise<string> {
         },
         body: JSON.stringify(payload),
         signal: controller.signal,
+        redirect: "error",
       });
 
       if (!resp.ok) {
@@ -369,14 +391,16 @@ export async function getSesabAuthHeaders(forceRefresh = false): Promise<{
 
 /**
  * Constrói a URL oficial de busca de paciente com os parâmetros solicitados
- * Exemplo: http://afsesab.sesab.ba.gov.br/api/v1/pacientes/buscar-paciente?cns=&cpf=56854617553&unidade_selecionada_id=9
+ * O endereço e os endpoints devem vir de variáveis de ambiente HTTPS.
  */
 export function buildBuscarPacienteUrl(cpf: string, cns?: string | null, customUnidadeId?: string | null): string {
   const baseUrl = getSesabBaseUrl();
-  const endpoint =
+  const endpoint = requireHttpsUrl(
     process.env.SESAB_BUSCAR_PACIENTE_URL ||
     process.env.CPF_API_URL ||
-    `${baseUrl}/api/v1/pacientes/buscar-paciente`;
+    `${baseUrl}/api/v1/pacientes/buscar-paciente`,
+    "SESAB_BUSCAR_PACIENTE_URL"
+  );
 
   const cleanCpf = cpf.replace(/\D/g, "");
   const cleanCns = cns ? cns.replace(/\D/g, "") : "";
@@ -406,16 +430,21 @@ export function invalidateTokens(): void {
 export function getAuthDiagnostics() {
   const now = Date.now();
   const { email } = getSesabCredentials();
-  const baseUrl = getSesabBaseUrl();
+  const baseUrl =
+    process.env.SESAB_BASE_URL ||
+    process.env.AFSESAB_BASE_URL ||
+    process.env.CPF_API_BASE_URL ||
+    null;
 
   return {
     provider: "SESAB / AFSESAB Bahia",
     baseUrl,
     emailConfigured: Boolean(email),
     maskedEmail: email ? email.replace(/(.{2})(.*)(@.*)/, "$1***$3") : null,
-    login1Endpoint: `${baseUrl}/api/v1/login`,
-    login2Endpoint: `${baseUrl}/logistica/login`,
-    buscarPacienteEndpoint: `${baseUrl}/api/v1/pacientes/buscar-paciente`,
+    login1Endpoint: baseUrl ? `${baseUrl}/api/v1/login` : null,
+    login2Endpoint: baseUrl ? `${baseUrl}/logistica/login` : null,
+    buscarPacienteEndpoint: baseUrl ? `${baseUrl}/api/v1/pacientes/buscar-paciente` : null,
+    secureTransportRequired: true,
     unidadeSelecionadaId: process.env.SESAB_UNIDADE_SELECIONADA_ID || "9",
 
     hasCachedToken1: Boolean(cachedToken1 && cachedToken1.expiresAt > now),

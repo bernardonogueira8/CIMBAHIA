@@ -28,7 +28,6 @@ import { INITIAL_FARMACOS } from "../farmacos-data";
 import {
   INITIAL_UNITS,
   INITIAL_PROFILES,
-  INITIAL_CIDS,
   INITIAL_MEDICATIONS,
   INITIAL_OTHER_MEDICATIONS,
   INITIAL_TIPOS_PARECER,
@@ -221,16 +220,21 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const STORAGE_KEY_PREFIX = "pharmacare_";
+const STORAGE_KEY_PREFIX = "cimbahia_";
 
 function getStoredOrDefault<T>(key: string, defaultValue: T): T {
   if (typeof window === "undefined") return defaultValue;
   try {
     const item = localStorage.getItem(STORAGE_KEY_PREFIX + key);
-    return item ? JSON.parse(item) : defaultValue;
+    return item === null ? defaultValue : JSON.parse(item);
   } catch {
     return defaultValue;
   }
+}
+
+function removeStoredItem(key: string) {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(STORAGE_KEY_PREFIX + key);
 }
 
 function saveToStorage<T>(key: string, value: T) {
@@ -296,7 +300,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [units, setUnits] = useState<Unit[]>(() => {
     if (typeof window !== "undefined") {
       try {
-        localStorage.removeItem(STORAGE_KEY_PREFIX + "units");
+        removeStoredItem("units");
       } catch {}
     }
     const stored = getStoredOrDefault<Unit[]>("units_v3", INITIAL_UNITS);
@@ -305,9 +309,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [profiles, setProfiles] = useState<Profile[]>(() =>
     getStoredOrDefault("profiles", INITIAL_PROFILES)
   );
-  const [cids, setCids] = useState<CID[]>(() =>
-    getStoredOrDefault("cids", INITIAL_CIDS)
-  );
+  const [cids, setCids] = useState<CID[]>([]);
   const [medications, setMedications] = useState<Medication[]>(() =>
     getStoredOrDefault("medications", INITIAL_MEDICATIONS)
   );
@@ -397,7 +399,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // 1. Unidades, CIDs, Medicamentos e Profiles (Metadados públicos/cadastrais de referência)
       const [
         cbUnitsRes,
-        cidsRes,
         medsRes,
         relsRes,
         cbProfilesRes,
@@ -406,7 +407,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         otherMedsRes,
       ] = await Promise.all([
         supabase.from("cb_units").select("*").order("name"),
-        supabase.from("cids").select("*").order("code"),
         supabase.from("medications").select("*").order("name"),
         supabase.from("medication_authorized_cids").select("sigtap_code, cid_code"),
         supabase.from("cb_profiles").select("*"),
@@ -424,9 +424,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      if (cidsRes.data && cidsRes.data.length > 0) {
-        setCids(cidsRes.data);
+      const cidsFromDatabase: CID[] = [];
+      for (let start = 0; ; start += 1000) {
+        const { data, error } = await supabase
+          .from("cb_cids")
+          .select("*")
+          .order("code")
+          .range(start, start + 999);
+
+        if (error) {
+          console.error("Erro ao carregar CIDs de cb_cids:", error.message);
+          cidsFromDatabase.length = 0;
+          break;
+        }
+
+        cidsFromDatabase.push(...(data || []));
+        if (!data || data.length < 1000) break;
       }
+      setCids(cidsFromDatabase);
 
       if (cbProfilesRes.data && cbProfilesRes.data.length > 0) {
         setProfiles(cbProfilesRes.data);
@@ -526,7 +541,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       setIsSupabaseOnline(true);
     } catch (err) {
-      console.warn("Supabase fetch warning, mantendo cache local:", err);
+      console.warn("Erro ao sincronizar dados com o Supabase:", err);
+      setCids([]);
       setIsSupabaseOnline(false);
     } finally {
       setIsSyncing(false);
@@ -718,7 +734,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Efeitos para persistência em localStorage (fallback offline contínuo)
   useEffect(() => saveToStorage("units_v3", units), [units]);
   useEffect(() => saveToStorage("profiles", profiles), [profiles]);
-  useEffect(() => saveToStorage("cids", cids), [cids]);
   useEffect(() => saveToStorage("medications", medications), [medications]);
   useEffect(() => saveToStorage("origens", origens), [origens]);
   useEffect(() => saveToStorage("diresList", diresList), [diresList]);
@@ -918,11 +933,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
     if (typeof window !== "undefined") {
-      localStorage.removeItem("pharmacare_currentUser");
-      localStorage.removeItem("pharmacare_isDemoMode");
-      localStorage.removeItem("pharmacare_patients");
-      localStorage.removeItem("pharmacare_consultations");
-      localStorage.removeItem("pharmacare_monthlyData");
+      removeStoredItem("currentUser");
+      removeStoredItem("isDemoMode");
+      removeStoredItem("patients");
+      removeStoredItem("consultations");
+      removeStoredItem("monthlyData");
     }
     setIsDemoMode(false);
     setCurrentUser(null);
@@ -1284,6 +1299,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!canManageCatalogs) {
       throw new Error("Permissão negada: apenas administradores podem cadastrar CIDs.");
     }
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error("Supabase não configurado: não é possível cadastrar CIDs.");
+    }
     const newId = generateUUID();
     const newCid: CID = {
       ...cid,
@@ -1291,24 +1309,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id: newId,
       created_at: new Date().toISOString(),
     };
-    setCids((prev) => [newCid, ...prev.filter((c) => c.code !== newCid.code)]);
 
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const { error } = await supabase.from("cids").upsert(
-          {
-            code: newCid.code,
-            description: newCid.description,
-            active: newCid.active,
-          },
-          { onConflict: "code" }
-        );
-        if (error) console.error("Erro ao salvar CID no Supabase:", error);
-        await refreshFromSupabase();
-      } catch (e) {
-        console.error("Falha ao persistir CID:", e);
-      }
+    const { error } = await supabase.from("cb_cids").upsert(
+      {
+        code: newCid.code,
+        description: newCid.description,
+        chapter: newCid.chapter || null,
+        group_name: newCid.group_name || null,
+        active: newCid.active,
+      },
+      { onConflict: "code" }
+    );
+    if (error) {
+      console.error("Erro ao salvar CID no Supabase:", error.message);
+      throw new Error(error.message);
     }
+    await refreshFromSupabase();
 
     return newCid;
   };
@@ -1355,35 +1371,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!canManageCatalogs) {
       return { success: false, error: "Permissão negada: apenas administradores podem editar CIDs." };
     }
-
-    setCids((prev) =>
-      prev.map((c) => (c.id === cidId ? { ...c, ...cidData } : c))
-    );
-
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const updatePayload: Record<string, any> = {};
-        if (cidData.code !== undefined) updatePayload.code = cidData.code.toUpperCase().trim();
-        if (cidData.description !== undefined) updatePayload.description = cidData.description.trim();
-        if (cidData.active !== undefined) updatePayload.active = cidData.active;
-
-        const { error } = await supabase
-          .from("cids")
-          .update(updatePayload)
-          .eq("id", cidId);
-
-        if (error) {
-          console.error("Erro ao atualizar CID no Supabase:", error);
-          return { success: false, error: error.message };
-        }
-        await refreshFromSupabase();
-        return { success: true };
-      } catch (e: any) {
-        console.error("Falha ao atualizar CID:", e);
-        return { success: false, error: e.message || "Erro ao atualizar CID." };
-      }
+    if (!isSupabaseConfigured || !supabase) {
+      return { success: false, error: "Supabase não configurado: não é possível editar CIDs." };
     }
 
+    const updatePayload: Record<string, any> = {};
+    if (cidData.code !== undefined) updatePayload.code = cidData.code.toUpperCase().trim();
+    if (cidData.description !== undefined) updatePayload.description = cidData.description.trim();
+    if (cidData.chapter !== undefined) updatePayload.chapter = cidData.chapter || null;
+    if (cidData.group_name !== undefined) updatePayload.group_name = cidData.group_name || null;
+    if (cidData.active !== undefined) updatePayload.active = cidData.active;
+
+    const { error } = await supabase
+      .from("cb_cids")
+      .update(updatePayload)
+      .eq("id", cidId);
+
+    if (error) {
+      console.error("Erro ao atualizar CID no Supabase:", error.message);
+      return { success: false, error: error.message };
+    }
+    await refreshFromSupabase();
     return { success: true };
   };
 
@@ -2085,10 +2093,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }));
       if (cidsToPersist.length > 0) {
         supabase
-          .from("cids")
+          .from("cb_cids")
           .upsert(cidsToPersist, { onConflict: "code" })
           .then(({ error }) => {
-            if (error) console.warn("Supabase cids upsert warning:", error.message);
+            if (error) console.warn("Supabase cb_cids upsert warning:", error.message);
           });
       }
     }

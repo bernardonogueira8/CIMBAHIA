@@ -17,6 +17,8 @@ import {
   Stethoscope,
   Building2,
   FileCheck2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { useApp } from "@/lib/context/AppContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -42,7 +44,8 @@ export default function UsuariosPage() {
   const [isNewUserModalOpen, setIsNewUserModalOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("CimBahia@2026");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [crf, setCrf] = useState("");
   const [role, setRole] = useState<Role>("farmaceutico");
   const [unitId, setUnitId] = useState<string>(units[0]?.id || "");
@@ -94,7 +97,8 @@ export default function UsuariosPage() {
         setIsNewUserModalOpen(false);
         setName("");
         setEmail("");
-        setPassword("CimBahia@2026");
+        setPassword("");
+        setShowPassword(false);
         setCrf("");
         setSuccessMsg("");
       }, 1200);
@@ -197,7 +201,11 @@ export default function UsuariosPage() {
 
         {isGestor && (
           <Button
-            onClick={() => setIsNewUserModalOpen(true)}
+            onClick={() => {
+              setPassword("");
+              setShowPassword(false);
+              setIsNewUserModalOpen(true);
+            }}
             size="sm"
             className="bg-[#171A20] hover:bg-[#282C34] text-white shrink-0 flex items-center gap-1.5"
           >
@@ -471,12 +479,30 @@ export default function UsuariosPage() {
             <label className="text-xs font-semibold text-[#171A20] block mb-1">
               Senha Inicial Temporária * (mínimo 6 caracteres)
             </label>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <div className="relative">
+              <Input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+                minLength={6}
+                className="pr-10"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((visible) => !visible)}
+                aria-label={showPassword ? "Ocultar senha" : "Exibir senha"}
+                aria-pressed={showPassword}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-[#5C5E62] hover:text-[#171A20] focus:outline-none focus:ring-2 focus:ring-[#171A20]"
+              >
+                {showPassword ? (
+                  <EyeOff className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <Eye className="h-4 w-4" aria-hidden="true" />
+                )}
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#E5E7EB]">
@@ -484,7 +510,11 @@ export default function UsuariosPage() {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setIsNewUserModalOpen(false)}
+              onClick={() => {
+                setIsNewUserModalOpen(false);
+                setPassword("");
+                setShowPassword(false);
+              }}
             >
               Cancelar
             </Button>

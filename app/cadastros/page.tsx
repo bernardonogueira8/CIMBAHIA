@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   FolderOpen,
   PlusCircle,
@@ -35,7 +35,6 @@ import { CID, Farmaco, TipoParecer } from "@/lib/types";
 
 export default function CadastrosPage() {
   const {
-    cids,
     farmacos,
     tiposParecer,
     currentUser,
@@ -77,12 +76,18 @@ export default function CadastrosPage() {
   const [cidSearch, setCidSearch] = useState("");
   const [cidPage, setCidPage] = useState(1);
   const [cidPageSize, setCidPageSize] = useState(50);
+  const [pagedCids, setPagedCids] = useState<CID[]>([]);
+  const [cidTotal, setCidTotal] = useState(0);
+  const [isLoadingCids, setIsLoadingCids] = useState(false);
+  const [cidLoadError, setCidLoadError] = useState("");
+  const [cidRefreshKey, setCidRefreshKey] = useState(0);
 
   const [isCidModalOpen, setIsCidModalOpen] = useState(false);
   const [editingCid, setEditingCid] = useState<CID | null>(null);
   const [cidCode, setCidCode] = useState("");
   const [cidDesc, setCidDesc] = useState("");
   const [cidChapter, setCidChapter] = useState("");
+  const [cidSaveError, setCidSaveError] = useState("");
 
   // =========================================================================
   // 3. ESTADOS: TIPOS DE PARECER
@@ -164,23 +169,62 @@ export default function CadastrosPage() {
   // =========================================================================
   // FILTRAGEM E PAGINAÇÃO: CIDs
   // =========================================================================
-  const filteredCids = useMemo(() => {
-    return cids.filter((c) => {
-      return (
-        c.code.toLowerCase().includes(cidSearch.toLowerCase()) ||
-        c.description.toLowerCase().includes(cidSearch.toLowerCase())
-      );
-    });
-  }, [cids, cidSearch]);
+  useEffect(() => {
+    let active = true;
+    const abortController = new AbortController();
+    setIsLoadingCids(true);
+    setCidLoadError("");
 
-  const totalCidPages = Math.ceil(filteredCids.length / cidPageSize) || 1;
-  const pagedCids = useMemo(() => {
-    const start = (cidPage - 1) * cidPageSize;
-    return filteredCids.slice(start, start + cidPageSize);
-  }, [filteredCids, cidPage, cidPageSize]);
+    const loadCids = async () => {
+      const searchParams = new URLSearchParams({
+        q: cidSearch,
+        page: String(cidPage),
+        limit: String(cidPageSize),
+      });
+      const response = await fetch(`/api/cids?${searchParams}`, {
+        signal: abortController.signal,
+      });
+      if (!active) return;
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message || "Não foi possível consultar cb_cids.");
+      }
+      const result: { total: number; cids: CID[] } = await response.json();
+      if (!active) return;
+
+      setPagedCids(result.cids);
+      setCidTotal(result.total);
+      setIsLoadingCids(false);
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      loadCids().catch((error: unknown) => {
+        if (!active || (error instanceof Error && error.name === "AbortError")) return;
+        console.error("Erro ao buscar CIDs no Supabase:", error);
+        setCidLoadError(
+          error instanceof Error
+            ? error.message
+            : "Não foi possível carregar os CIDs do Supabase."
+        );
+        setPagedCids([]);
+        setCidTotal(0);
+        setIsLoadingCids(false);
+      });
+    }, 250);
+
+    return () => {
+      active = false;
+      abortController.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [cidPage, cidPageSize, cidRefreshKey, cidSearch]);
+
+  const totalCidPages = Math.ceil(cidTotal / cidPageSize) || 1;
 
   // Handlers CID
   const handleOpenCidModal = (cid?: CID) => {
+    setCidSaveError("");
     if (cid) {
       setEditingCid(cid);
       setCidCode(cid.code);
@@ -199,20 +243,29 @@ export default function CadastrosPage() {
     e.preventDefault();
     if (!cidCode.trim() || !cidDesc.trim()) return;
 
-    if (editingCid) {
-      await updateCID(editingCid.id, {
-        code: cidCode.trim().toUpperCase(),
-        description: cidDesc.trim(),
-        chapter: cidChapter.trim() || null,
-      });
-    } else {
-      await addCID({
-        code: cidCode.trim().toUpperCase(),
-        description: cidDesc.trim(),
-        active: true,
-      });
+    try {
+      if (editingCid) {
+        const result = await updateCID(editingCid.id, {
+          code: cidCode.trim().toUpperCase(),
+          description: cidDesc.trim(),
+          chapter: cidChapter.trim() || null,
+        });
+        if (!result.success) throw new Error(result.error || "Não foi possível atualizar o CID.");
+      } else {
+        await addCID({
+          code: cidCode.trim().toUpperCase(),
+          description: cidDesc.trim(),
+          active: true,
+        });
+      }
+      setCidRefreshKey((key) => key + 1);
+      setIsCidModalOpen(false);
+    } catch (error) {
+      console.error("Erro ao salvar CID no Supabase:", error);
+      setCidSaveError(
+        error instanceof Error ? error.message : "Não foi possível salvar o CID."
+      );
     }
-    setIsCidModalOpen(false);
   };
 
   // =========================================================================
@@ -329,7 +382,7 @@ export default function CadastrosPage() {
               <BookOpen className="h-4 w-4 text-blue-600" />
             </div>
             <div className="text-2xl font-bold text-slate-900 mt-1">
-              {cids.length.toLocaleString("pt-BR")}
+              {cidTotal.toLocaleString("pt-BR")}
             </div>
             <span className="text-[11px] text-slate-500">Diagnósticos clínicos cadastrados</span>
           </CardContent>
@@ -372,7 +425,7 @@ export default function CadastrosPage() {
           }`}
         >
           <BookOpen className="h-4 w-4" />
-          Diagnósticos CID-10 ({cids.length.toLocaleString("pt-BR")})
+          Diagnósticos CID-10 ({cidTotal.toLocaleString("pt-BR")})
         </button>
 
         <button
@@ -568,7 +621,7 @@ export default function CadastrosPage() {
           <CardHeader className="p-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div>
               <CardTitle className="text-base font-semibold text-slate-800">
-                Classificação Internacional de Doenças (CID-10) ({filteredCids.length.toLocaleString("pt-BR")})
+                Classificação Internacional de Doenças (CID-10) ({cidTotal.toLocaleString("pt-BR")})
               </CardTitle>
               <CardDescription className="text-xs text-slate-500">
                 Catálogo de diagnósticos clínicos utilizados na fundamentação de pareceres.
@@ -601,6 +654,36 @@ export default function CadastrosPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
+                  {cidLoadError && (
+                    <tr>
+                      <td
+                        colSpan={isGestor ? 5 : 4}
+                        className="px-3 py-6 text-center text-rose-700"
+                      >
+                        {cidLoadError}
+                      </td>
+                    </tr>
+                  )}
+                  {isLoadingCids && (
+                    <tr>
+                      <td
+                        colSpan={isGestor ? 5 : 4}
+                        className="px-3 py-6 text-center text-slate-500"
+                      >
+                        Buscando CIDs no Supabase...
+                      </td>
+                    </tr>
+                  )}
+                  {!isLoadingCids && !cidLoadError && pagedCids.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={isGestor ? 5 : 4}
+                        className="px-3 py-6 text-center text-slate-500"
+                      >
+                        Nenhum CID encontrado no Supabase.
+                      </td>
+                    </tr>
+                  )}
                   {pagedCids.map((c) => (
                     <tr key={c.id} className="hover:bg-slate-50 transition-colors">
                       <td className="py-2.5 px-3 font-mono font-bold text-emerald-800">{c.code}</td>
@@ -640,7 +723,7 @@ export default function CadastrosPage() {
             {/* Paginação CIDs */}
             <div className="flex items-center justify-between text-xs text-slate-500 pt-2">
               <div>
-                Exibindo {pagedCids.length} de {filteredCids.length.toLocaleString("pt-BR")} CIDs
+                Exibindo {pagedCids.length} de {cidTotal.toLocaleString("pt-BR")} CIDs
               </div>
               <div className="flex items-center gap-1">
                 <Button
@@ -837,6 +920,11 @@ export default function CadastrosPage() {
           maxWidth="md"
         >
           <form onSubmit={handleSaveCid} className="space-y-3">
+            {cidSaveError && (
+              <p role="alert" className="text-xs text-rose-700">
+                {cidSaveError}
+              </p>
+            )}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Código CID-10 *

@@ -1,13 +1,12 @@
 {
-  "name": "pharma-care",
+  "name": "cimbahia",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "sigtap:import": "node scripts/import-sigtap-competencia.mjs"
+    "lint": "eslint"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
