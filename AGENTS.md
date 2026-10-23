@@ -28,7 +28,7 @@ Keep a qualifying candidate through the reporting pass even if you resolve or wo
 Before the final response, run one reporting pass. If candidates remain, from this file's directory run `node node_modules/next/dist/bin/next internal agent-feedback-instructions` once without piping or truncating its output. Follow its output or error guidance. If a network sandbox blocks it, retry with network access; if it still returns no output, continue normally.
 
 <!-- END:nextjs-agent-feedback -->
-**Regra de Registro de Missões (History Tracking)**
+## **Regra de Registro de Missões (History Tracking)**
 
 Sempre que concluir uma missão ou tarefa solicitada, você deve documentar a execução obrigatoriamente seguindo este padrão:
 
@@ -42,3 +42,15 @@ Sempre que concluir uma missão ou tarefa solicitada, você deve documentar a ex
 * **Resumo da Execução:** [A resposta final consolidada e o que foi efetivamente construído ou alterado]
 
 Siga este bloco de forma estrita em cada final de interação.
+
+## **Regra de Análise de Segurança (Security Review)**
+
+Antes de fornecer qualquer código final, propor uma arquitetura ou aprovar um Pull Request, você deve executar um checklist de segurança silencioso e incluir uma seção estruturada de **Análise de Segurança** na sua resposta, avaliando os seguintes pontos:
+
+1. **OWASP Top 10:** O código está vulnerável a Injeção (SQL/NoSQL/Comandos), XSS, ou Quebra de Autenticação?
+2. **Gestão de Segredos:** Existem credenciais, tokens ou chaves de API hardcoded? (Se sim, substitua por variáveis de ambiente).
+3. **Validação e Sanitização:** Todos os inputs de usuários, requisições externas e parâmetros de URL estão sendo validados e sanitizados?
+4. **Dependências:** As bibliotecas sugeridas possuem vulnerabilidades conhecidas recentes?
+5. **Privilégio Mínimo:** A execução de scripts, conexões de banco de dados e containers Docker estão configurados com o menor privilégio necessário?
+
+Se vulnerabilidades forem encontradas, o código deve ser reescrito com as correções aplicadas e o motivo da mudança documentado.
