@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Activity,
+  Building,
   Building2,
   Globe,
   MapPin,
@@ -73,6 +74,7 @@ export default function PacientesPage() {
     type: "success" | "error" | "info";
     message: string;
   } | null>(null);
+  const [isSavingPatient, setIsSavingPatient] = useState(false);
 
   const [municipalityId, setMunicipalityId] = useState("");
   const [municipioSearch, setMunicipioSearch] = useState("");
@@ -105,6 +107,46 @@ export default function PacientesPage() {
       )
       .slice(0, 15);
   }, [municipios, municipioSearch]);
+
+  // Município e Base deduzidos para o modal de cadastro de paciente
+  const deducedMun = useMemo(() => {
+    if (!municipalityId) return null;
+    return municipios.find((m) => m.id === municipalityId) || null;
+  }, [municipios, municipalityId]);
+
+  const deducedUnit = useMemo(() => {
+    if (!deducedMun) return null;
+    if (deducedMun.base_id) {
+      const byBase = units.find((u) => u.id === deducedMun.base_id);
+      if (byBase) return byBase;
+    }
+    if (deducedMun.brs_name) {
+      const cleanBrs = deducedMun.brs_name
+        .replace(/^(BRS|NRS|Base Regional de Saúde|Núcleo Regional de Saúde)\s+/i, "")
+        .trim();
+      return units.find((u) => matchNormalized(u.name, cleanBrs)) || null;
+    }
+    return null;
+  }, [deducedMun, units]);
+
+  const resetPatientForm = () => {
+    setFullName("");
+    setCpf("");
+    setCpfNotProvided(false);
+    setGender("nao_informado");
+    setCns("");
+    setBirthDate("");
+    setPhone("");
+    setBairro("");
+    setCep("");
+    setStatusExterno(null);
+    setAfsesabStatus(null);
+    setCpfSearchFeedback(null);
+    setMunicipalityId("");
+    setMunicipioSearch("");
+    setIsOutsideBahia(false);
+    setOutsideCity("");
+  };
 
   // Filtragem de pacientes (Uso Comum entre Unidades - insensível a acentuação)
   const filteredPatients = useMemo(() => {
@@ -234,77 +276,61 @@ export default function PacientesPage() {
     }
   };
 
-  const handleSavePatient = (e: React.FormEvent) => {
+  const handleSavePatient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canEdit) return;
     if (!fullName.trim() || (!cpfNotProvided && !cpf.trim())) {
       alert("Preencha o Nome Completo e CPF (ou marque a opção 'CPF não informado').");
       return;
     }
-    const mun = !isOutsideBahia ? municipios.find((m) => m.id === municipalityId) : null;
-    const deducedUnit = mun
-      ? units.find(
-        (u) =>
-          (mun.base_id && u.id === mun.base_id) ||
-          u.served_municipalities?.some((sm) => sm.id === mun.id || sm.ibge_code === mun.ibge_code) ||
-          (mun.brs_name && u.name.toLowerCase().includes(mun.brs_name.replace(/^BRS\s+/i, "").toLowerCase()))
-      )
-      : null;
-    const targetUnitId =
-      deducedUnit?.id ||
-      (mun?.base_id ? mun.base_id : null) ||
-      currentUser?.unit_id ||
-      (selectedUnitId !== "all" ? selectedUnitId : null) ||
-      units[0]?.id ||
-      "55555555-5555-5555-5555-555555555555";
+    setIsSavingPatient(true);
+    try {
+      const targetUnitId =
+        deducedUnit?.id ||
+        (deducedMun?.base_id ? deducedMun.base_id : null) ||
+        currentUser?.unit_id ||
+        (selectedUnitId !== "all" ? selectedUnitId : null) ||
+        units[0]?.id ||
+        "55555555-5555-5555-5555-555555555555";
 
-    const finalMunName = isOutsideBahia
-      ? outsideCity.trim()
-        ? `${outsideCity.trim()} (Fora da Bahia)`
-        : "Fora da Bahia / Outro Estado"
-      : mun
-        ? `${mun.name} - BA`
-        : undefined;
+      const finalMunName = isOutsideBahia
+        ? outsideCity.trim()
+          ? `${outsideCity.trim()} (Fora da Bahia)`
+          : "Fora da Bahia / Outro Estado"
+        : deducedMun
+          ? `${deducedMun.name} - BA`
+          : undefined;
 
-    addPatient({
-      unit_id: targetUnitId,
-      full_name: fullName.trim(),
-      cpf: cpfNotProvided ? "Não informado" : cpf.trim(),
-      cpf_not_provided: cpfNotProvided,
-      gender: gender,
-      cns: cns.trim() || undefined,
-      birth_date: birthDate || undefined,
-      phone: phone.trim() || undefined,
-      bairro: bairro.trim() || undefined,
-      cep: cep.trim() || undefined,
-      municipality_id: isOutsideBahia ? "fora-da-bahia" : municipalityId || undefined,
-      municipality_name: finalMunName,
-      is_outside_bahia: isOutsideBahia,
-      outside_state_description: isOutsideBahia ? outsideCity.trim() || "Fora da Bahia" : undefined,
-      status: "em_acompanhamento",
-      status_externo: statusExterno || undefined,
-      afsesab_status: afsesabStatus || undefined,
-      cadastrado_afsesab: afsesabStatus === "paciente_existe",
-      created_by: currentUser?.id,
-    });
+      await addPatient({
+        unit_id: targetUnitId,
+        full_name: fullName.trim(),
+        cpf: cpfNotProvided ? "Não informado" : cpf.trim(),
+        cpf_not_provided: cpfNotProvided,
+        gender: gender,
+        cns: cns.trim() || undefined,
+        birth_date: birthDate || undefined,
+        phone: phone.trim() || undefined,
+        bairro: bairro.trim() || undefined,
+        cep: cep.trim() || undefined,
+        municipality_id: isOutsideBahia ? "fora-da-bahia" : municipalityId || undefined,
+        municipality_name: finalMunName,
+        is_outside_bahia: isOutsideBahia,
+        outside_state_description: isOutsideBahia ? outsideCity.trim() || "Fora da Bahia" : undefined,
+        status: "em_acompanhamento",
+        status_externo: statusExterno || undefined,
+        afsesab_status: afsesabStatus || undefined,
+        cadastrado_afsesab: afsesabStatus === "paciente_existe",
+        created_by: currentUser?.id,
+      });
 
-    setIsNewPatientOpen(false);
-    setFullName("");
-    setCpf("");
-    setCpfNotProvided(false);
-    setGender("nao_informado");
-    setCns("");
-    setBirthDate("");
-    setPhone("");
-    setBairro("");
-    setCep("");
-    setStatusExterno(null);
-    setAfsesabStatus(null);
-    setCpfSearchFeedback(null);
-    setMunicipalityId("");
-    setMunicipioSearch("");
-    setIsOutsideBahia(false);
-    setOutsideCity("");
+      setIsNewPatientOpen(false);
+      resetPatientForm();
+    } catch (err) {
+      console.error("Erro ao salvar paciente:", err);
+      alert("Erro ao salvar paciente.");
+    } finally {
+      setIsSavingPatient(false);
+    }
   };
 
   return (
@@ -659,41 +685,43 @@ export default function PacientesPage() {
       {/* Modal Cadastro de Novo Paciente */}
       <Dialog
         open={isNewPatientOpen}
-        onOpenChange={setIsNewPatientOpen}
+        onOpenChange={(open) => {
+          setIsNewPatientOpen(open);
+          if (!open) resetPatientForm();
+        }}
         title="Novo Cadastro de Paciente"
-        description={`Unidade: ${activeUnit?.name}`}
+        description="Informe os dados básicos para cadastro imediato e acompanhamento no sistema."
+        maxWidth="md"
       >
-        <form onSubmit={handleSavePatient} className="space-y-4">
-          {/* 1. CPF (Prioritário no topo para consulta e autopreenchimento) */}
-          <div>
-            <div className="flex items-center justify-between">
-              <div>
+        <div className="space-y-4">
+          <form onSubmit={handleSavePatient} className="space-y-3">
+            {/* 1. CPF (Prioritário no topo para consulta e autopreenchimento com Enter) */}
+            <div>
+              <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5 pb-2">
-                  <span>CPF do Paciente {!cpfNotProvided && "*"}</span>
-                  <span className="text-[10px] font-normal text-slate-500">(Priorize o CPF para consultar na SESAB)</span>
+                  <span>CPF {cpfNotProvided ? "(Dispensado)" : "*"}</span>
+                  <span className="text-[10px] font-normal text-slate-500">(Pressione Enter para consultar)</span>
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={cpfNotProvided}
+                    onChange={(e) => {
+                      setCpfNotProvided(e.target.checked);
+                      if (e.target.checked) setCpf("");
+                      setCpfSearchFeedback(null);
+                      setAfsesabStatus(null);
+                    }}
+                    className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <span className="text-[11px] font-medium text-amber-800">
+                    CPF não informado
+                  </span>
                 </label>
               </div>
-              <label className="flex items-center gap-1.5 text-[11px] text-[#5C5E62] cursor-pointer pb-2">
-                <input
-                  type="checkbox"
-                  checked={cpfNotProvided}
-                  onChange={(e) => {
-                    setCpfNotProvided(e.target.checked);
-                    if (e.target.checked) setCpf("");
-                    setCpfSearchFeedback(null);
-                  }}
-                  className="rounded border-gray-300 text-[#171A20] focus:ring-[#171A20]"
-                />
-                <span>Não informado</span>
-              </label>
-            </div>
-
-            <div className="flex gap-2">
-              <div className="relative flex-1">
+              <div className="flex gap-2">
                 <Input
-                  placeholder={cpfNotProvided ? "CPF não informado" : "000.000.000-00 (Pressione Enter para consultar)"}
                   value={cpf}
-                  disabled={cpfNotProvided}
                   onChange={(e) => setCpf(formatCPF(e.target.value))}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
@@ -703,148 +731,183 @@ export default function PacientesPage() {
                       }
                     }
                   }}
+                  placeholder={cpfNotProvided ? "CPF não informado" : "000.000.000-00 (Enter para buscar)"}
+                  disabled={cpfNotProvided}
                   required={!cpfNotProvided}
-                  className={`font-mono text-xs ${cpfNotProvided ? "bg-gray-100 text-gray-500 italic" : ""}`}
+                  className={`text-xs font-mono flex-1 ${cpfNotProvided ? "bg-slate-100 text-slate-400" : ""
+                    }`}
                 />
+                {!cpfNotProvided && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isSearchingCpf || cpf.replace(/\D/g, "").length !== 11}
+                    onClick={() => handleSearchCpf(cpf)}
+                    className="text-xs border-emerald-400 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 px-3 flex items-center gap-1.5 flex-shrink-0 font-medium"
+                    title="Pressione Enter ou clique para pesquisar na API da SESAB"
+                  >
+                    {isSearchingCpf ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                        <span>Buscando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Consultar [Enter]</span>
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
-              {!cpfNotProvided && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleSearchCpf(cpf)}
-                  disabled={isSearchingCpf || cpf.replace(/\D/g, "").length !== 11}
-                  className="h-9 px-3 text-xs flex items-center gap-1.5 border-emerald-600 bg-white text-emerald-700 hover:bg-emerald-50 shrink-0 font-semibold shadow-sm"
-                  title="Pressione Enter ou clique para pesquisar na API da SESAB"
+
+              {cpfSearchFeedback && (
+                <div
+                  className={`p-2.5 rounded text-xs space-y-1.5 ${cpfSearchFeedback.type === "success"
+                    ? "bg-emerald-50 border border-emerald-200 text-emerald-900 mt-2"
+                    : cpfSearchFeedback.type === "info"
+                      ? "bg-blue-50 border border-blue-200 text-blue-900 mt-2"
+                      : "bg-rose-50 border border-rose-200 text-rose-800 mt-2"
+                    }`}
                 >
-                  {isSearchingCpf ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
-                  ) : (
-                    <Search className="w-3.5 h-3.5 text-emerald-600" />
+                  <div className="flex items-center gap-2">
+                    {cpfSearchFeedback.type === "success" ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                    ) : cpfSearchFeedback.type === "info" ? (
+                      <AlertCircle className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                    )}
+                    <span className="font-medium">{cpfSearchFeedback.message}</span>
+                  </div>
+                  {afsesabStatus && (
+                    <div className="flex items-center gap-2 pt-1 border-t border-emerald-200/60 text-[11px]">
+                      <span className="font-semibold text-slate-700">Situação no AFSESAB:</span>
+                      {afsesabStatus === "paciente_existe" ? (
+                        <Badge className="bg-emerald-600 text-white text-[10px] px-2 py-0.5 font-medium">
+                          ✅ Paciente já cadastrado no AFSESAB
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] px-2 py-0.5 font-medium">
+                          ⚠️ Novo Paciente (Sem cadastro prévio no AFSESAB)
+                        </Badge>
+                      )}
+                    </div>
                   )}
-                  <span>Consultar [Enter]</span>
-                </Button>
+                </div>
               )}
             </div>
 
-            {/* Banner de Feedback da Busca de CPF & Status AFSESAB */}
-            {cpfSearchFeedback && (
-              <div
-                className={`p-2.5 mt-3 rounded-lg text-xs flex items-start justify-between gap-2 border ${cpfSearchFeedback.type === "success"
-                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-                  : cpfSearchFeedback.type === "info"
-                    ? "bg-blue-50 border-blue-200 text-blue-800"
-                    : "bg-red-50 border-red-200 text-red-800"
-                  }`}
-              >
-                <div className="flex items-start gap-2">
-                  {cpfSearchFeedback.type === "success" ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  )}
-                  <div className="space-y-1">
-                    <p className="font-medium">{cpfSearchFeedback.message}</p>
-                    {afsesabStatus && (
-                      <div className="flex items-center gap-2 pt-0.5">
-                        <Badge
-                          variant="outline"
-                          className={`text-[10px] font-semibold ${afsesabStatus === "paciente_existe"
-                            ? "bg-emerald-100 text-emerald-900 border-emerald-300"
-                            : "bg-amber-100 text-amber-900 border-amber-300"
-                            }`}
-                        >
-                          {afsesabStatus === "paciente_existe"
-                            ? "✅ Cadastrado no AFSESAB"
-                            : "⚠️ Novo Paciente (Sem cadastro prévio no AFSESAB)"}
-                        </Badge>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setCpfSearchFeedback(null)}
-                  className="text-slate-400 hover:text-slate-600 font-bold ml-1"
-                >
-                  ✕
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* 2. Nome Completo e Sexo Biológico */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="sm:col-span-2">
+            {/* 2. Nome Completo */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Nome Completo *
+              </label>
               <Input
-                label="Nome Completo *"
-                placeholder="Nome do usuário"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
+                placeholder="Nome completo do paciente"
                 required
+                className="text-xs"
               />
             </div>
-            <div>
-              <label className="text-xs font-semibold text-[#393C41] block mb-1">
-                Sexo Biológico
-              </label>
-              <select
-                value={gender}
-                onChange={(e) => setGender(e.target.value as "M" | "F" | "nao_informado")}
-                className="w-full h-9 px-3 text-xs bg-white border border-[#D1D5DB] rounded focus:outline-none"
-              >
-                <option value="F">Feminino (F)</option>
-                <option value="M">Masculino (M)</option>
-                <option value="nao_informado">Não informado</option>
-              </select>
+
+            <div className="grid grid-cols-2 gap-3">
+              {/* Sexo Biológico */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Sexo Biológico / Gênero
+                </label>
+                <select
+                  value={gender}
+                  onChange={(e) =>
+                    setGender(
+                      e.target.value as "M" | "F" | "nao_informado"
+                    )
+                  }
+                  className="w-full text-xs p-2 rounded-md border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="F">Feminino (F)</option>
+                  <option value="M">Masculino (M)</option>
+                  <option value="nao_informado">Não informado</option>
+                </select>
+              </div>
+
+              {/* Cartão SUS */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Cartão SUS (CNS)
+                </label>
+                <Input
+                  value={cns}
+                  onChange={(e) => setCns(e.target.value)}
+                  placeholder="Número CNS"
+                  className="text-xs font-mono"
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input
-              label="Cartão SUS (CNS)"
-              placeholder="700000000000000"
-              value={cns}
-              onChange={(e) => setCns(e.target.value)}
-            />
-            <Input
-              type="date"
-              label="Data de Nascimento"
-              value={birthDate}
-              onChange={(e) => setBirthDate(e.target.value)}
-            />
-          </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Data de Nascimento
+                </label>
+                <Input
+                  type="date"
+                  value={birthDate}
+                  onChange={(e) => setBirthDate(e.target.value)}
+                  className="text-xs"
+                />
+              </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input
-              label="Bairro"
-              placeholder="Ex: Centro, Barra, Brotas"
-              value={bairro}
-              onChange={(e) => setBairro(e.target.value)}
-            />
-            <Input
-              label="CEP"
-              placeholder="00000-000"
-              value={cep}
-              onChange={(e) => setCep(e.target.value)}
-            />
-          </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Telefone de Contato
+                </label>
+                <Input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="(71) 98888-0000"
+                  className="text-xs"
+                />
+              </div>
+            </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input
-              label="Telefone / Contato"
-              placeholder="(75) 99999-9999"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-            />
+            {/* Bairro e CEP */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Bairro
+                </label>
+                <Input
+                  value={bairro}
+                  onChange={(e) => setBairro(e.target.value)}
+                  placeholder="Ex: Brotas, Pituba"
+                  className="text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  CEP
+                </label>
+                <Input
+                  value={cep}
+                  onChange={(e) => setCep(e.target.value)}
+                  placeholder="00000-000"
+                  className="text-xs font-mono"
+                />
+              </div>
+            </div>
 
             {/* Município de Residência com Autocomplete & Opção Fora da Bahia */}
             <div ref={municipioRef} className="relative">
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-semibold text-[#393C41]">
+                <label className="text-xs font-semibold text-slate-700">
                   Município de Residência
                 </label>
-                <label className="flex items-center gap-1.5 text-[11px] text-[#5C5E62] cursor-pointer">
+                <label className="flex items-center gap-1.5 text-[11px] text-slate-600 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={isOutsideBahia}
@@ -856,7 +919,7 @@ export default function PacientesPage() {
                         setIsMunicipioDropdownOpen(false);
                       }
                     }}
-                    className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                   />
                   <span className="font-medium text-amber-800">
                     Fora da Bahia / Outro Estado
@@ -886,7 +949,7 @@ export default function PacientesPage() {
                 <div className="relative">
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                   <Input
-                    placeholder="Pesquise o município da Bahia..."
+                    placeholder="Pesquise a cidade da Bahia..."
                     value={municipioSearch}
                     onChange={(e) => {
                       setMunicipioSearch(e.target.value);
@@ -911,7 +974,7 @@ export default function PacientesPage() {
 
                   {isMunicipioDropdownOpen && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 max-h-56 overflow-y-auto">
-                      {/* Opção rápida Fora da Bahia no topo da lista */}
+                      {/* Opção rápida Fora da Bahia */}
                       <div
                         onClick={() => {
                           setIsOutsideBahia(true);
@@ -960,23 +1023,49 @@ export default function PacientesPage() {
                   )}
                 </div>
               )}
-            </div>
-          </div>
 
-          <div className="flex items-center justify-end gap-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsNewPatientOpen(false)}
-            >
-              Cancelar
-            </Button>
-            <Button type="submit" variant="primary" size="sm">
-              Salvar Paciente
-            </Button>
-          </div>
-        </form>
+              {/* Relação Territorial Deduzida do Paciente */}
+              {!isOutsideBahia && deducedMun && (
+                <div className="p-2.5 rounded-lg bg-emerald-50/70 border border-emerald-200 text-xs flex items-center justify-between mt-2">
+                  <div className="flex items-center gap-2 text-slate-800">
+                    <Building className="h-3.5 w-3.5 text-emerald-600" />
+                    <span>
+                      Base Regional: <strong>{deducedUnit?.name || `BRS ${deducedMun.brs_name || ""}`}</strong>
+                    </span>
+                  </div>
+                  {deducedMun.responsible_pharmacist && (
+                    <Badge variant="outline" className="text-[10px] bg-white text-emerald-800 border-emerald-300">
+                      {deducedMun.responsible_pharmacist}
+                    </Badge>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setIsNewPatientOpen(false);
+                  resetPatientForm();
+                }}
+                className="text-xs"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isSavingPatient}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+              >
+                {isSavingPatient ? "Salvando..." : "Salvar Paciente"}
+              </Button>
+            </div>
+          </form>
+        </div>
       </Dialog>
     </div>
   );

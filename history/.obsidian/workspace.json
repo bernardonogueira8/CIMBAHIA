@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "2026-10-22/ajuste-banco-pareceres-resposta-especifica-item.md",
+                "file": "2026-10-22/remocao-recomendacoes-automaticas-parecer.md",
                 "mode": "preview",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "ajuste-banco-pareceres-resposta-especifica-item"
+              "title": "remocao-recomendacoes-automaticas-parecer"
             }
           }
         ]
@@ -99,7 +99,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "2026-10-22/ajuste-banco-pareceres-resposta-especifica-item.md",
+                "file": "2026-10-22/remocao-recomendacoes-automaticas-parecer.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -118,7 +118,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "2026-10-22/ajuste-banco-pareceres-resposta-especifica-item.md",
+                "file": "2026-10-22/remocao-recomendacoes-automaticas-parecer.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
@@ -161,7 +161,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "2026-10-22/ajuste-banco-pareceres-resposta-especifica-item.md",
+                "file": "2026-10-22/remocao-recomendacoes-automaticas-parecer.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -189,5 +189,19 @@
     }
   },
   "active": "7adf34e3d7c96f8a",
-  "lastOpenFiles": []
+  "lastOpenFiles": [
+    "2026-10-23/padronizar-modal-novo-cadastro-paciente.md",
+    "2026-10-23/remover-campos-posologia-quantidade.md",
+    "2026-10-22/remocao-recomendacoes-automaticas-parecer.md",
+    "2026-10-22/pesquisa-dinamica-respostas-combo-data-conclusao.md",
+    "2026-10-22/identificar-idade-paciente-avaliacao.md",
+    "2026-10-22/fluxo-triagem-salvar-parcial-concluir.md",
+    "2026-10-22/etapa-observacao-triagem-e-contatos-sei.md",
+    "2026-10-22/editar-medicamentos-triagem-farmaceutico.md",
+    "2026-10-22/correcao-formato-data-status-auditoria.md",
+    "2026-10-22/consultas-insensiveis-acentuacao.md",
+    "2026-10-22/auditoria-seguranca-qualidade-codigo.md",
+    "2026-10-22/ajuste-banco-pareceres-resposta-especifica-item.md",
+    "2026-10-23"
+  ]
 }

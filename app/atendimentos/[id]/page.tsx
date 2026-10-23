@@ -269,8 +269,6 @@ function DetalhesProcessoContent() {
   const [itemCidResults, setItemCidResults] = useState<CID[]>([]);
   const [isLoadingCids, setIsLoadingCids] = useState(false);
   const [cidSearchError, setCidSearchError] = useState("");
-  const [itemPosology, setItemPosology] = useState("");
-  const [itemMonthlyQuantity, setItemMonthlyQuantity] = useState<string | number>(1);
   const [itemErrorMessage, setItemErrorMessage] = useState("");
 
   const [isDeleteItemModalOpen, setIsDeleteItemModalOpen] = useState(false);
@@ -501,8 +499,6 @@ function DetalhesProcessoContent() {
     setIsCidDropdownOpen(false);
     setItemCidNaoInformado(false);
     setItemSelectedCid(null);
-    setItemPosology("");
-    setItemMonthlyQuantity(1);
     setItemErrorMessage("");
     setIsItemModalOpen(true);
   };
@@ -522,8 +518,6 @@ function DetalhesProcessoContent() {
     setIsCidDropdownOpen(false);
     setItemCidNaoInformado(!!item.cid_nao_informado);
     setItemSelectedCid(null);
-    setItemPosology(item.posology || "");
-    setItemMonthlyQuantity(item.monthly_quantity ?? 1);
     setItemErrorMessage("");
     setIsItemModalOpen(true);
   };
@@ -559,8 +553,6 @@ function DetalhesProcessoContent() {
         }
       }
 
-      const qMonthly = Number(itemMonthlyQuantity);
-
       if (itemModalMode === "add") {
         const newItem: ProcessoItem = {
           id: generateUUID(),
@@ -572,8 +564,6 @@ function DetalhesProcessoContent() {
           cid_code: finalCidCode,
           cid_description: finalCidDesc,
           cid_nao_informado: itemCidNaoInformado,
-          posology: itemPosology.trim() || null,
-          monthly_quantity: !isNaN(qMonthly) && qMonthly > 0 ? qMonthly : 1,
           status: "pendente",
           justification: null,
         };
@@ -592,8 +582,6 @@ function DetalhesProcessoContent() {
           cid_code: finalCidCode,
           cid_description: finalCidDesc,
           cid_nao_informado: itemCidNaoInformado,
-          posology: itemPosology.trim() || null,
-          monthly_quantity: !isNaN(qMonthly) && qMonthly > 0 ? qMonthly : 1,
         };
 
         const updatedItems = itemsState.map((it, idx) => (idx === editingItemIndex ? updatedItem : it));
@@ -996,9 +984,6 @@ function DetalhesProcessoContent() {
 
       texto += `Item ${idx + 1}: ${nome}\n`;
       texto += `Diagnóstico: CID-10 ${cid}\n`;
-      if (it.posology || it.monthly_quantity) {
-        texto += `Posologia prescrita: ${it.posology || "Conforme receita"}${it.monthly_quantity ? ` | Qtd Mensal: ${it.monthly_quantity}` : ""}\n`;
-      }
       texto += `Conclusão do Item: [${statusLabel}]\n`;
       texto += `Fundamentação Técnica: ${it.justification || "Avaliação clínica em conformidade com as diretrizes e protocolos vigentes."
         }\n\n`;
@@ -1875,18 +1860,6 @@ function DetalhesProcessoContent() {
                             {item.cid_code} - {item.cid_description}
                           </span>
                         )}
-                        {item.posology && (
-                          <>
-                            <span>•</span>
-                            <span>Posologia: {item.posology}</span>
-                          </>
-                        )}
-                        {item.monthly_quantity && (
-                          <>
-                            <span>•</span>
-                            <span>Qtd: {item.monthly_quantity}/mês</span>
-                          </>
-                        )}
                       </div>
                     </div>
 
@@ -1917,7 +1890,7 @@ function DetalhesProcessoContent() {
                             size="sm"
                             onClick={() => handleOpenEditItemModal(item, index)}
                             className="h-8 px-2.5 text-xs font-semibold text-blue-700 hover:text-blue-900 hover:bg-blue-50 border-blue-200 flex items-center gap-1 shadow-xs"
-                            title="Editar fármaco, diagnóstico ou posologia cadastrado na triagem"
+                            title="Editar fármaco ou diagnóstico cadastrado na triagem"
                           >
                             <Edit3 className="h-3.5 w-3.5 text-blue-600" />
                             <span>Editar</span>
@@ -3177,32 +3150,7 @@ function DetalhesProcessoContent() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-slate-700">
-                Posologia Prescrita
-              </label>
-              <Input
-                placeholder="Ex: 1 comprimido via oral a cada 12 horas"
-                value={itemPosology}
-                onChange={(e) => setItemPosology(e.target.value)}
-                className="text-xs"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-slate-700">
-                Quantidade Mensal Estimada
-              </label>
-              <Input
-                type="number"
-                min={1}
-                placeholder="1"
-                value={itemMonthlyQuantity}
-                onChange={(e) => setItemMonthlyQuantity(e.target.value)}
-                className="text-xs"
-              />
-            </div>
-          </div>
+
 
           <div className="flex items-center justify-end gap-2 pt-3 border-t">
             <Button
@@ -3254,12 +3202,7 @@ function DetalhesProcessoContent() {
                   {itemToDelete.item.cid_nao_informado ? "CID Não Informado" : `${itemToDelete.item.cid_code} - ${itemToDelete.item.cid_description || ""}`}
                 </span>
               </div>
-              {itemToDelete.item.posology && (
-                <div>
-                  <span className="text-slate-500">Posologia:</span>{" "}
-                  <span className="text-slate-700">{itemToDelete.item.posology}</span>
-                </div>
-              )}
+
             </div>
           )}
 
