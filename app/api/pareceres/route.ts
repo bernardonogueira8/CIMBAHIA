@@ -7,10 +7,12 @@ export interface ParecerSearchResultItem {
   id: string;
   origem: "processo_real" | "precedente_oficial";
   processo_sei?: string;
+  paciente_nome?: string;
   data: string;
   farmaceutico: string;
   crf?: string;
   substancia: string;
+  posologia?: string;
   componente?: string;
   cid_code: string;
   cid_description?: string;
@@ -18,6 +20,7 @@ export interface ParecerSearchResultItem {
   titulo: string;
   pcdt_referencia: string;
   fundamentacao_tecnica: string;
+  parecer_consolidado?: string;
   recomendacoes?: string;
   criterios_chave?: string[];
 }
@@ -96,12 +99,22 @@ export function executePareceresSearch(params: {
         "";
       const itemNormalized = normalize(itemSubstance);
 
-      // Verificação por substância / termo
+      const parecerVersion = proc.parecer?.active_version;
+
+      // Verificação por substância / termo (desconsiderando acentos e caixa)
       let matchesTerm = true;
       if (normalizedTerm) {
+        const descNormalized = normalize(item.cid_description || "");
+        const seiNormalized = normalize(proc.numero_sei || "");
+        const justNormalized = normalize(
+          parecerVersion?.technical_justification || item.justification || ""
+        );
         matchesTerm =
           itemNormalized.includes(normalizedTerm) ||
-          normalizedTerm.includes(itemNormalized);
+          normalizedTerm.includes(itemNormalized) ||
+          descNormalized.includes(normalizedTerm) ||
+          seiNormalized.includes(normalizedTerm) ||
+          justNormalized.includes(normalizedTerm);
       }
 
       // Verificação por CID
@@ -110,7 +123,6 @@ export function executePareceresSearch(params: {
         matchesCid = item.cid_code.toUpperCase().startsWith(searchCid);
       }
 
-      const parecerVersion = proc.parecer?.active_version;
       const rawStatus = (item.status || parecerVersion?.regulatory_effect || proc.status || "pendente").toLowerCase();
       
       // Mapeia para os 4 status técnicos
@@ -135,10 +147,35 @@ export function executePareceresSearch(params: {
       const hasParecerOuDecisao = Boolean(parecerVersion) || rawStatus !== "pendente";
 
       if (matchesTerm && matchesCid && matchesStatus && hasParecerOuDecisao) {
+        // 1. Extrai a fundamentação técnica específica do fármaco + CID para este paciente
+        let specificJustification = (item.justification || "").trim();
+
+        // Se item.justification estiver vazio, tenta extrair a seção específica do item dentro do parecer consolidado
+        if (!specificJustification && parecerVersion?.technical_justification) {
+          const fullText = parecerVersion.technical_justification;
+          const farmacoEscaped = itemSubstance.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const regex = new RegExp(
+            `(?:Item\\s*\\d*[:\\s]*${farmacoEscaped}[\\s\\S]*?Fundamenta[çc][aã]o\\s*T[eé]cnica[:\\s]*)([\\s\\S]*?)(?=(?:\\nItem\\s*\\d*|Diante do exame|Certos da|Atenciosamente|$))`,
+            "i"
+          );
+          const match = fullText.match(regex);
+          if (match && match[1] && match[1].trim()) {
+            specificJustification = match[1].trim();
+          }
+        }
+
+        // Se ainda não encontrado, usa o parecer geral como último recurso
+        if (!specificJustification) {
+          specificJustification =
+            parecerVersion?.technical_justification ||
+            "Avaliação farmacêutica e clínica baseada no protocolo vigente e documentação médica apresentada.";
+        }
+
         realProcessosResults.push({
           id: `real-${proc.id}-${item.id}`,
           origem: "processo_real",
           processo_sei: proc.numero_sei,
+          paciente_nome: proc.paciente?.full_name || "Não informado",
           data: (parecerVersion?.created_at ? parecerVersion.created_at.split("T")[0] : proc.data_abertura),
           farmaceutico:
             parecerVersion?.pharmacist_name ||
@@ -146,6 +183,7 @@ export function executePareceresSearch(params: {
             "Farmacêutico Parecerista CimBahia",
           crf: parecerVersion?.crf || "CRF-BA",
           substancia: itemSubstance,
+          posologia: item.posology || undefined,
           componente: item.medication_type === "ceaf" ? "CEAF / Especializado" : "Demanda Administrativa / Outro",
           cid_code: item.cid_code,
           cid_description: item.cid_description,
@@ -160,13 +198,9 @@ export function executePareceresSearch(params: {
           pcdt_referencia:
             matchedPrecedent?.pcdt_reference ||
             "Protocolo Clínico e Diretrizes Terapêuticas (SAS/MS - SESAB)",
-          fundamentacao_tecnica:
-            parecerVersion?.technical_justification ||
-            item.justification ||
-            "Avaliação farmacêutica e clínica baseada no protocolo vigente e documentação médica apresentada.",
-          recomendacoes:
-            parecerVersion?.recommendations ||
-            "Manter acompanhamento clínico e farmacoterapêutico periódico.",
+          fundamentacao_tecnica: specificJustification,
+          parecer_consolidado: parecerVersion?.technical_justification || undefined,
+          recomendacoes: parecerVersion?.recommendations || undefined,
         });
       }
     }

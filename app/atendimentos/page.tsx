@@ -18,6 +18,8 @@ import {
   ArrowRight,
   Filter,
   Trash2,
+  Mail,
+  Phone,
 } from "lucide-react";
 import { useApp } from "@/lib/context/AppContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -25,7 +27,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
-import { formatDate } from "@/lib/utils";
+import { formatDate, matchNormalized } from "@/lib/utils";
+import { calculatePatientAgeAtEvaluation, FaixaEtariaPaciente } from "@/lib/patient-age";
 import { Processo, ProcessoStatus, isProcessoInFirstStatus } from "@/lib/types";
 
 export default function AtendimentosPage() {
@@ -49,14 +52,18 @@ export default function AtendimentosPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [origemFilter, setOrigemFilter] = useState<string>("all");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  const [faixaEtariaFilter, setFaixaEtariaFilter] = useState<string>("all");
 
   // Estado para exclusão de processo
   const [processoToDelete, setProcessoToDelete] = useState<Processo | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Mapeamento normalizado para os 4 status simplificados
-  const getNormalizedStage = (st: ProcessoStatus): "triagem" | "aguardando_parecer" | "em_analise" | "concluido" => {
+  // Mapeamento normalizado para os 5 status simplificados com Observação
+  const getNormalizedStage = (
+    st: ProcessoStatus
+  ): "triagem" | "observacao" | "aguardando_parecer" | "em_analise" | "concluido" => {
+    if (st === "observacao" || st === "em_observacao") return "observacao";
     if (st === "triagem" || st === "aguardando_triagem" || st === "em_triagem") return "triagem";
     if (st === "aguardando_parecer") return "aguardando_parecer";
     if (st === "em_analise" || st === "em_analise_farmaceutica" || st === "em_exigencia") {
@@ -68,17 +75,22 @@ export default function AtendimentosPage() {
   // Filtragem dos processos
   const filteredProcessos = useMemo(() => {
     return processos.filter((p) => {
-      // Busca textual
+      // Busca textual insensível a acentos e maiúsculas/minúsculas
+      const cleanDigitsSearch = searchTerm.replace(/\D/g, "");
       const matchesSearch =
-        p.numero_sei.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (p.paciente?.full_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (p.paciente?.cpf || "").includes(searchTerm) ||
-        (p.municipio?.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (p.assunto || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        matchNormalized(p.numero_sei, searchTerm) ||
+        matchNormalized(p.paciente?.full_name, searchTerm) ||
+        (cleanDigitsSearch && (p.paciente?.cpf || "").replace(/\D/g, "").includes(cleanDigitsSearch)) ||
+        matchNormalized(p.paciente?.cns, searchTerm) ||
+        matchNormalized(p.municipio?.name, searchTerm) ||
+        matchNormalized(p.assunto, searchTerm) ||
+        matchNormalized(p.email || p.contato_email, searchTerm) ||
+        (cleanDigitsSearch && (p.telefone || p.contato_telefone || "").replace(/\D/g, "").includes(cleanDigitsSearch)) ||
         p.items.some(
           (item) =>
-            (item.farmaco_substancia || item.medication_name).toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.cid_code.toLowerCase().includes(searchTerm.toLowerCase())
+            matchNormalized(item.farmaco_substancia || item.medication_name, searchTerm) ||
+            matchNormalized(item.cid_code, searchTerm) ||
+            matchNormalized(item.cid_description, searchTerm)
         );
 
       if (!matchesSearch) return false;
@@ -87,6 +99,7 @@ export default function AtendimentosPage() {
       if (statusFilter !== "all") {
         const stage = getNormalizedStage(p.status);
         if (statusFilter === "triagem" && stage !== "triagem") return false;
+        if (statusFilter === "observacao" && stage !== "observacao") return false;
         if (statusFilter === "aguardando_parecer" && stage !== "aguardando_parecer") return false;
         if (statusFilter === "em_analise" && stage !== "em_analise") return false;
         if (statusFilter === "concluido" && stage !== "concluido") return false;
@@ -102,14 +115,24 @@ export default function AtendimentosPage() {
         return false;
       }
 
+      // Faixa Etária no Momento da Avaliação
+      if (faixaEtariaFilter !== "all") {
+        const evalDate = p.parecer?.active_version?.created_at || p.data_abertura || p.created_at;
+        const ageCalc = calculatePatientAgeAtEvaluation(p.paciente?.birth_date, evalDate);
+        if (ageCalc.faixaEtaria !== faixaEtariaFilter) {
+          return false;
+        }
+      }
+
       return true;
     });
-  }, [processos, searchTerm, statusFilter, origemFilter, priorityFilter]);
+  }, [processos, searchTerm, statusFilter, origemFilter, priorityFilter, faixaEtariaFilter]);
 
-  // Contadores para os Cards de Métricas (Sequência de 4 etapas)
+  // Contadores para os Cards de Métricas (Sequência de 5 etapas)
   const metrics = useMemo(() => {
     const total = processos.length;
     let triagem = 0;
+    let observacao = 0;
     let aguardandoParecer = 0;
     let emAnalise = 0;
     let concluido = 0;
@@ -117,6 +140,7 @@ export default function AtendimentosPage() {
     processos.forEach((p) => {
       const stage = getNormalizedStage(p.status);
       if (stage === "triagem") triagem++;
+      else if (stage === "observacao") observacao++;
       else if (stage === "aguardando_parecer") aguardandoParecer++;
       else if (stage === "em_analise") emAnalise++;
       else if (stage === "concluido") concluido++;
@@ -126,7 +150,7 @@ export default function AtendimentosPage() {
       (p) => (p.days_in_current_status || 0) >= 5 && getNormalizedStage(p.status) !== "concluido"
     ).length;
 
-    return { total, triagem, aguardandoParecer, emAnalise, concluido, gargalos };
+    return { total, triagem, observacao, aguardandoParecer, emAnalise, concluido, gargalos };
   }, [processos]);
 
   // Navegar para a tela individual do processo
@@ -200,28 +224,35 @@ export default function AtendimentosPage() {
         return (
           <Badge className="bg-emerald-600 text-white text-[10px] flex items-center gap-1 font-semibold">
             <CheckCircle2 className="h-3 w-3" />
-            Concluído
+            4. Concluído
           </Badge>
         );
       case "em_analise":
         return (
           <Badge className="bg-amber-600 text-white text-[10px] flex items-center gap-1 font-semibold">
             <ShieldCheck className="h-3 w-3" />
-            Em Análise
+            3. Em Análise
           </Badge>
         );
       case "aguardando_parecer":
         return (
           <Badge className="bg-blue-600 text-white text-[10px] flex items-center gap-1 font-semibold">
             <Clock className="h-3 w-3" />
-            Aguardando Parecer
+            2. Aguardando Parecer
+          </Badge>
+        );
+      case "observacao":
+        return (
+          <Badge className="bg-amber-500 text-white text-[10px] flex items-center gap-1 font-semibold">
+            <Clock className="h-3 w-3" />
+            Em Observação
           </Badge>
         );
       default:
         return (
           <Badge className="bg-slate-600 text-white text-[10px] flex items-center gap-1 font-semibold">
             <FileText className="h-3 w-3" />
-            Triagem
+            1. Triagem
           </Badge>
         );
     }
@@ -250,8 +281,8 @@ export default function AtendimentosPage() {
         </div>
       </div>
 
-      {/* Cards de Métricas Operacionais (4 Etapas Sequenciais) */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      {/* Cards de Métricas Operacionais (5 Etapas Sequenciais com Observação) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <Card
           onClick={() => setStatusFilter("all")}
           className={`cursor-pointer transition-all border ${
@@ -285,7 +316,24 @@ export default function AtendimentosPage() {
           </CardContent>
         </Card>
 
-        {/* 2. Aguardando Parecer */}
+        {/* 2. Observação na Triagem */}
+        <Card
+          onClick={() => setStatusFilter("observacao")}
+          className={`cursor-pointer transition-all border ${
+            statusFilter === "observacao" ? "ring-2 ring-amber-500 bg-amber-50/40" : "hover:border-slate-300"
+          }`}
+        >
+          <CardContent className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-amber-800">2. Observação</span>
+              <Clock className="h-4 w-4 text-amber-600" />
+            </div>
+            <div className="text-2xl font-bold text-amber-700 mt-1">{metrics.observacao}</div>
+            <span className="text-[11px] text-amber-800/80">Pendência documental</span>
+          </CardContent>
+        </Card>
+
+        {/* 3. Aguardando Parecer */}
         <Card
           onClick={() => setStatusFilter("aguardando_parecer")}
           className={`cursor-pointer transition-all border ${
@@ -294,7 +342,7 @@ export default function AtendimentosPage() {
         >
           <CardContent className="p-3.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-blue-700">2. Aguardando Parecer</span>
+              <span className="text-xs font-medium text-blue-700">3. Aguardando Parecer</span>
               <Clock className="h-4 w-4 text-blue-500" />
             </div>
             <div className="text-2xl font-bold text-blue-700 mt-1">{metrics.aguardandoParecer}</div>
@@ -302,7 +350,7 @@ export default function AtendimentosPage() {
           </CardContent>
         </Card>
 
-        {/* 3. Em Análise */}
+        {/* 4. Em Análise */}
         <Card
           onClick={() => setStatusFilter("em_analise")}
           className={`cursor-pointer transition-all border ${
@@ -311,7 +359,7 @@ export default function AtendimentosPage() {
         >
           <CardContent className="p-3.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-amber-700">3. Em Análise</span>
+              <span className="text-xs font-medium text-amber-700">4. Em Análise</span>
               <ShieldCheck className="h-4 w-4 text-amber-500" />
             </div>
             <div className="text-2xl font-bold text-amber-700 mt-1">{metrics.emAnalise}</div>
@@ -319,7 +367,7 @@ export default function AtendimentosPage() {
           </CardContent>
         </Card>
 
-        {/* 4. Concluído */}
+        {/* 5. Concluído */}
         <Card
           onClick={() => setStatusFilter("concluido")}
           className={`cursor-pointer transition-all border ${
@@ -328,7 +376,7 @@ export default function AtendimentosPage() {
         >
           <CardContent className="p-3.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-emerald-700">4. Concluído</span>
+              <span className="text-xs font-medium text-emerald-700">5. Concluído</span>
               <CheckCircle2 className="h-4 w-4 text-emerald-500" />
             </div>
             <div className="text-2xl font-bold text-emerald-700 mt-1">{metrics.concluido}</div>
@@ -386,10 +434,11 @@ export default function AtendimentosPage() {
                 className="h-10 text-xs rounded-md border border-slate-200 bg-white px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
               >
                 <option value="all">Todos os Status</option>
-                <option value="triagem">1. Criar Processo (Triagem)</option>
-                <option value="aguardando_parecer">2. Aguardando Parecer</option>
-                <option value="em_analise">3. Em Análise</option>
-                <option value="concluido">4. Concluído</option>
+                <option value="triagem">1. Triagem</option>
+                <option value="observacao">2. Observação</option>
+                <option value="aguardando_parecer">3. Aguardando Parecer</option>
+                <option value="em_analise">4. Em Análise</option>
+                <option value="concluido">5. Concluído</option>
               </select>
 
               <select
@@ -416,7 +465,19 @@ export default function AtendimentosPage() {
                 <option value="judicial">Mandado Judicial</option>
               </select>
 
-              {(searchTerm || statusFilter !== "all" || origemFilter !== "all" || priorityFilter !== "all") && (
+              <select
+                value={faixaEtariaFilter}
+                onChange={(e) => setFaixaEtariaFilter(e.target.value)}
+                className="h-10 text-xs rounded-md border border-slate-200 bg-white px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+              >
+                <option value="all">Todas as Faixas Etárias</option>
+                <option value="recem_nascido">Recém-nascido (0 a 28 dias)</option>
+                <option value="crianca">Criança (29 dias a 17 anos)</option>
+                <option value="adulto">Adulto (18 a 59 anos)</option>
+                <option value="idoso">Idoso (60+ anos)</option>
+              </select>
+
+              {(searchTerm || statusFilter !== "all" || origemFilter !== "all" || priorityFilter !== "all" || faixaEtariaFilter !== "all") && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -425,6 +486,7 @@ export default function AtendimentosPage() {
                     setStatusFilter("all");
                     setOrigemFilter("all");
                     setPriorityFilter("all");
+                    setFaixaEtariaFilter("all");
                   }}
                   className="text-xs text-slate-500 hover:text-slate-800"
                 >
@@ -509,27 +571,65 @@ export default function AtendimentosPage() {
                             </span>
                             {getPriorityBadge(proc.priority)}
                           </div>
+                          {(proc.email || proc.telefone || proc.contato_email || proc.contato_telefone) && (
+                            <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500">
+                              {(proc.email || proc.contato_email) && (
+                                <span className="flex items-center gap-0.5" title={proc.email || proc.contato_email || ""}>
+                                  <Mail className="h-2.5 w-2.5 text-slate-400" />
+                                  <span className="truncate max-w-[110px]">{proc.email || proc.contato_email}</span>
+                                </span>
+                              )}
+                              {(proc.telefone || proc.contato_telefone) && (
+                                <span className="flex items-center gap-0.5">
+                                  <Phone className="h-2.5 w-2.5 text-slate-400" />
+                                  <span>{proc.telefone || proc.contato_telefone}</span>
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
 
                         {/* Paciente */}
                         <td className="py-3 px-4">
-                          <div className="font-medium text-slate-900 flex items-center gap-1.5">
-                            <span>{proc.paciente?.full_name || "Paciente não cadastrado"}</span>
-                            <Badge variant="outline" className="text-[9px]">
-                              {proc.paciente?.gender === "M"
-                                ? "M"
-                                : proc.paciente?.gender === "F"
-                                ? "F"
-                                : proc.paciente?.gender === "outro"
-                                ? "Outro"
-                                : "N/I"}
-                            </Badge>
-                          </div>
-                          <div className="text-[11px] text-slate-500 font-mono">
-                            {proc.paciente?.cpf_not_provided
-                              ? "CPF Não Informado"
-                              : `CPF: ${proc.paciente?.cpf || "---"}`}
-                          </div>
+                          {(() => {
+                            const evalDate = proc.parecer?.active_version?.created_at || proc.data_abertura || proc.created_at;
+                            const ageCalc = calculatePatientAgeAtEvaluation(proc.paciente?.birth_date, evalDate);
+                            return (
+                              <>
+                                <div className="font-medium text-slate-900 flex items-center gap-1.5 flex-wrap">
+                                  <span>{proc.paciente?.full_name || "Paciente não cadastrado"}</span>
+                                  <Badge variant="outline" className="text-[9px]">
+                                    {proc.paciente?.gender === "M"
+                                      ? "M"
+                                      : proc.paciente?.gender === "F"
+                                      ? "F"
+                                      : proc.paciente?.gender === "outro"
+                                      ? "Outro"
+                                      : "N/I"}
+                                  </Badge>
+                                  {ageCalc.faixaEtaria && (
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-[9px] font-bold px-1.5 py-0 border ${ageCalc.badgeStyles.fullBadgeClass}`}
+                                    >
+                                      {ageCalc.faixaEtariaLabel}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-mono mt-0.5">
+                                  <span>
+                                    {proc.paciente?.cpf_not_provided
+                                      ? "CPF Não Informado"
+                                      : `CPF: ${proc.paciente?.cpf || "---"}`}
+                                  </span>
+                                  <span>•</span>
+                                  <span className="font-sans font-medium text-slate-700 bg-slate-100 px-1 rounded text-[10px]">
+                                    {ageCalc.idadeFormatada}
+                                  </span>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </td>
 
                         {/* Município / BRS */}

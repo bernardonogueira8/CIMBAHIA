@@ -42,6 +42,7 @@ import {
   INITIAL_PROCESSOS,
 } from "../mock-data";
 import { supabase, isSupabaseConfigured } from "../supabase/client";
+import { calculatePatientAgeAtEvaluation } from "../patient-age";
 
 function generateUUID(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -525,8 +526,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               }
             }
 
+            const patientObj = row.paciente || (patsData || []).find((pt: any) => pt.id === row.paciente_id) || null;
+            const evalDate = activeParecer?.active_version?.created_at || row.data_abertura || row.created_at;
+            const ageCalc = calculatePatientAgeAtEvaluation(patientObj?.birth_date, evalDate);
+
             return {
               ...row,
+              email: row.email || row.contato_email || null,
+              telefone: row.telefone || row.contato_telefone || null,
+              contato_email: row.contato_email || row.email || null,
+              contato_telefone: row.contato_telefone || row.telefone || null,
+              paciente: patientObj,
+              paciente_idade_na_avaliacao: row.paciente_idade_na_avaliacao ?? ageCalc.idadeAnos,
+              paciente_idade_formatada: row.paciente_idade_formatada ?? ageCalc.idadeFormatada,
+              paciente_faixa_etaria: row.paciente_faixa_etaria ?? ageCalc.faixaEtaria,
+              paciente_faixa_etaria_label: row.paciente_faixa_etaria_label ?? ageCalc.faixaEtariaLabel,
               items: row.items || [],
               parecer: activeParecer,
               historico: (row.historico || []).sort(
@@ -2136,9 +2150,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addProcesso = async (proc: Omit<Processo, "id" | "created_at">): Promise<Processo> => {
     const newProcessoId = generateUUID();
     const histId = generateUUID();
+    const patientObj = proc.paciente || patients.find((p) => p.id === proc.paciente_id) || null;
+    const ageCalc = calculatePatientAgeAtEvaluation(
+      patientObj?.birth_date,
+      proc.data_abertura || new Date()
+    );
+
     const newProcesso: Processo = {
       ...proc,
       id: newProcessoId,
+      paciente: patientObj,
+      paciente_idade_na_avaliacao: ageCalc.idadeAnos,
+      paciente_idade_formatada: ageCalc.idadeFormatada,
+      paciente_faixa_etaria: ageCalc.faixaEtaria,
+      paciente_faixa_etaria_label: ageCalc.faixaEtariaLabel,
       created_at: new Date().toISOString(),
       historico: [
         {
@@ -2166,6 +2191,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           data_abertura: newProcesso.data_abertura || new Date().toISOString().split("T")[0],
           assunto: newProcesso.assunto,
           paciente_id: newProcesso.paciente_id,
+          paciente_idade_na_avaliacao: newProcesso.paciente_idade_na_avaliacao,
+          paciente_idade_formatada: newProcesso.paciente_idade_formatada,
+          paciente_faixa_etaria: newProcesso.paciente_faixa_etaria,
+          paciente_faixa_etaria_label: newProcesso.paciente_faixa_etaria_label,
           origem_id: isValidUUID(newProcesso.origem_id) ? newProcesso.origem_id : null,
           origem_nome: newProcesso.origem?.name || null,
           municipio_id: isValidUUID(newProcesso.municipio_id) ? newProcesso.municipio_id : null,
@@ -2173,6 +2202,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           unidade_id: isValidUUID(newProcesso.unidade_id) ? newProcesso.unidade_id : null,
           status: newProcesso.status || "triagem",
           priority: newProcesso.priority || "normal",
+          email: newProcesso.email || newProcesso.contato_email || null,
+          telefone: newProcesso.telefone || newProcesso.contato_telefone || null,
+          contato_email: newProcesso.contato_email || newProcesso.email || null,
+          contato_telefone: newProcesso.contato_telefone || newProcesso.telefone || null,
           triagem_by_id: isValidUUID(newProcesso.triagem_by_id) ? newProcesso.triagem_by_id : null,
           triagem_by_name: newProcesso.triagem_by_name || null,
           triagem_completed_at: newProcesso.triagem_completed_at || null,
@@ -2230,8 +2263,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateProcesso = async (id: string, data: Partial<Processo>): Promise<void> => {
+    const sanitizedData = { ...data };
+    if (sanitizedData.items) {
+      sanitizedData.items = sanitizedData.items.map((it) => ({
+        ...it,
+        id: isValidUUID(it.id) ? it.id : generateUUID(),
+      }));
+    }
+
     setProcessos((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, ...data, updated_at: new Date().toISOString() } : p))
+      prev.map((p) => (p.id === id ? { ...p, ...sanitizedData, updated_at: new Date().toISOString() } : p))
     );
 
     if (!isDemoMode && isSupabaseConfigured && supabase && isValidUUID(id)) {
@@ -2241,6 +2282,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (data.status !== undefined) procPayload.status = data.status;
       if (data.priority !== undefined) procPayload.priority = data.priority;
       if (data.assunto !== undefined) procPayload.assunto = data.assunto;
+      if (data.email !== undefined || data.contato_email !== undefined) {
+        const val = data.email ?? data.contato_email ?? null;
+        procPayload.email = val;
+        procPayload.contato_email = val;
+      }
+      if (data.telefone !== undefined || data.contato_telefone !== undefined) {
+        const val = data.telefone ?? data.contato_telefone ?? null;
+        procPayload.telefone = val;
+        procPayload.contato_telefone = val;
+      }
       if (data.triagem_by_id !== undefined) procPayload.triagem_by_id = isValidUUID(data.triagem_by_id) ? data.triagem_by_id : null;
       if (data.triagem_by_name !== undefined) procPayload.triagem_by_name = data.triagem_by_name;
       if (data.triagem_completed_at !== undefined) procPayload.triagem_completed_at = data.triagem_completed_at;
@@ -2261,9 +2312,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (error) console.warn("Supabase cb_processos update warning:", error.message);
         });
 
-      if (data.items) {
-        const itemRows = data.items.map((it) => ({
-          id: isValidUUID(it.id) ? it.id : generateUUID(),
+      if (sanitizedData.items) {
+        const itemRows = sanitizedData.items.map((it) => ({
+          id: it.id,
           processo_id: id,
           medication_type: it.medication_type || "ceaf",
           medication_id: it.medication_id || null,
@@ -2280,12 +2331,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           evaluated_at: it.evaluated_at || null,
           evaluated_by: it.evaluated_by || null,
         }));
-        supabase
-          .from("cb_processo_items")
-          .upsert(itemRows)
-          .then(({ error }) => {
-            if (error) console.warn("Supabase cb_processo_items upsert warning:", error.message);
-          });
+
+        const currentIds = itemRows.map((it) => it.id);
+        if (currentIds.length > 0) {
+          supabase
+            .from("cb_processo_items")
+            .delete()
+            .eq("processo_id", id)
+            .not("id", "in", `(${currentIds.join(",")})`)
+            .then(({ error }) => {
+              if (error) console.warn("Supabase cb_processo_items delete warning:", error.message);
+            });
+        } else {
+          supabase
+            .from("cb_processo_items")
+            .delete()
+            .eq("processo_id", id)
+            .then(({ error }) => {
+              if (error) console.warn("Supabase cb_processo_items delete all warning:", error.message);
+            });
+        }
+
+        if (itemRows.length > 0) {
+          supabase
+            .from("cb_processo_items")
+            .upsert(itemRows)
+            .then(({ error }) => {
+              if (error) console.warn("Supabase cb_processo_items upsert warning:", error.message);
+            });
+        }
       }
     }
   };

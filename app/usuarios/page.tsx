@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { Role, Profile } from "@/lib/types";
+import { matchNormalized } from "@/lib/utils";
 
 export default function UsuariosPage() {
   const {
@@ -162,12 +163,12 @@ export default function UsuariosPage() {
     }
   };
 
-  // Filtragem
+  // Filtragem (insensível a acentuação)
   const filteredProfiles = profiles.filter((p) => {
     const matchSearch =
-      p.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.crf && p.crf.toLowerCase().includes(searchTerm.toLowerCase()));
+      matchNormalized(p.full_name, searchTerm) ||
+      matchNormalized(p.email, searchTerm) ||
+      matchNormalized(p.crf, searchTerm);
 
     const matchRole =
       roleFilter === "all"

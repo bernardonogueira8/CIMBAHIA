@@ -37,11 +37,13 @@ import {
   Legend,
 } from "recharts";
 import { formatDate } from "@/lib/utils";
+import { calculatePatientAgeAtEvaluation } from "@/lib/patient-age";
 import { BAHIA_MACRORREGIOES } from "@/lib/territory-data";
 
 const STATUS_COLORS: Record<string, string> = {
-  "Aguardando Triagem": "#F59E0B",
+  "Aguardando Triagem": "#64748B",
   "Em Triagem": "#F97316",
+  "Em Observação": "#D97706",
   "Aguardando Parecer": "#3B82F6",
   "Em Análise Técnica": "#6366F1",
   "Em Exigência": "#A855F7",
@@ -122,6 +124,7 @@ export default function IndicadoresPage() {
   const statusDistributionData = useMemo(() => {
     const counts: Record<string, number> = {
       "Aguardando Triagem": 0,
+      "Em Observação": 0,
       "Aguardando Parecer": 0,
       "Em Análise Técnica": 0,
       "Em Exigência": 0,
@@ -131,19 +134,26 @@ export default function IndicadoresPage() {
 
     filteredProcessos.forEach((p) => {
       switch (p.status) {
+        case "triagem":
         case "aguardando_triagem":
         case "em_triagem":
           counts["Aguardando Triagem"] += 1;
           break;
+        case "observacao":
+        case "em_observacao":
+          counts["Em Observação"] += 1;
+          break;
         case "aguardando_parecer":
           counts["Aguardando Parecer"] += 1;
           break;
+        case "em_analise":
         case "em_analise_farmaceutica":
           counts["Em Análise Técnica"] += 1;
           break;
         case "em_exigencia":
           counts["Em Exigência"] += 1;
           break;
+        case "concluido":
         case "concluido_deferido":
         case "concluido_parcial":
           counts["Deferido"] += 1;
@@ -264,6 +274,29 @@ export default function IndicadoresPage() {
 
     const diresPerformance = Object.values(diresMap).filter((d) => d.deferidos + d.indeferidos > 0);
 
+    // Distribuição por Faixa Etária no Momento da Avaliação
+    const ageGroupCount = {
+      recem_nascido: 0,
+      crianca: 0,
+      adulto: 0,
+      idoso: 0,
+    };
+
+    filteredProcessos.forEach((p) => {
+      const evalDate = p.parecer?.active_version?.created_at || p.data_abertura || p.created_at;
+      const ageCalc = calculatePatientAgeAtEvaluation(p.paciente?.birth_date, evalDate);
+      if (ageCalc.faixaEtaria) {
+        ageGroupCount[ageCalc.faixaEtaria] += 1;
+      }
+    });
+
+    const ageDistribution = [
+      { name: "Recém-nascido", count: ageGroupCount.recem_nascido, fill: "#A855F7", description: "0 a 28 dias" },
+      { name: "Criança", count: ageGroupCount.crianca, fill: "#0EA5E9", description: "29 dias a 17 anos" },
+      { name: "Adulto", count: ageGroupCount.adulto, fill: "#10B981", description: "18 a 59 anos" },
+      { name: "Idoso", count: ageGroupCount.idoso, fill: "#F59E0B", description: "60+ anos" },
+    ];
+
     return {
       totalItems,
       ceafCount: ceafItems.length,
@@ -273,6 +306,8 @@ export default function IndicadoresPage() {
       topMedications,
       topCids,
       diresPerformance,
+      ageDistribution,
+      ageGroupCount,
     };
   }, [filteredProcessos, diresList]);
 
@@ -633,6 +668,41 @@ export default function IndicadoresPage() {
                 <span className="text-xs font-medium text-emerald-700">Diagnósticos (CIDs) Cobertos</span>
                 <div className="text-2xl font-bold text-emerald-900 mt-1">{pharmaMetrics.topCids.length}</div>
                 <span className="text-[11px] text-emerald-600">Patologias distintas</span>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Perfil Etário dos Pacientes no Momento da Avaliação */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card className="border-l-4 border-l-purple-500 bg-purple-50/20">
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-purple-800 uppercase tracking-wide">Recém-nascidos</span>
+                <div className="text-2xl font-bold text-purple-950 mt-1">{pharmaMetrics.ageGroupCount.recem_nascido}</div>
+                <span className="text-[11px] text-purple-700">0 a 28 dias de vida</span>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-sky-500 bg-sky-50/20">
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-sky-800 uppercase tracking-wide">Crianças</span>
+                <div className="text-2xl font-bold text-sky-950 mt-1">{pharmaMetrics.ageGroupCount.crianca}</div>
+                <span className="text-[11px] text-sky-700">29 dias a 17 anos</span>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-emerald-500 bg-emerald-50/20">
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-emerald-800 uppercase tracking-wide">Adultos</span>
+                <div className="text-2xl font-bold text-emerald-950 mt-1">{pharmaMetrics.ageGroupCount.adulto}</div>
+                <span className="text-[11px] text-emerald-700">18 a 59 anos</span>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-amber-500 bg-amber-50/20">
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Idosos</span>
+                <div className="text-2xl font-bold text-amber-950 mt-1">{pharmaMetrics.ageGroupCount.idoso}</div>
+                <span className="text-[11px] text-amber-700">60 anos ou mais</span>
               </CardContent>
             </Card>
           </div>

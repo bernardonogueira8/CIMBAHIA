@@ -25,7 +25,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
-import { formatCPF, formatPhone, formatDate } from "@/lib/utils";
+import { formatCPF, formatPhone, formatDate, matchNormalized, normalizeText } from "@/lib/utils";
+import { calculatePatientAgeAtEvaluation } from "@/lib/patient-age";
 import { Patient, PatientStatus, CpfLookupResult } from "@/lib/types";
 
 export default function PacientesPage() {
@@ -48,6 +49,11 @@ export default function PacientesPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedPatientForHistory, setSelectedPatientForHistory] = useState<Patient | null>(null);
+
+  const selectedPatientHistoryAge = useMemo(() => {
+    if (!selectedPatientForHistory?.birth_date) return null;
+    return calculatePatientAgeAtEvaluation(selectedPatientForHistory.birth_date, new Date());
+  }, [selectedPatientForHistory?.birth_date]);
 
   // Modal de Novo Paciente
   const [isNewPatientOpen, setIsNewPatientOpen] = useState(false);
@@ -87,30 +93,28 @@ export default function PacientesPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Municípios filtrados (autocomplete com base nos 417 municípios da Bahia)
+  // Municípios filtrados (autocomplete com base nos 417 municípios da Bahia - insensível a acentuação)
   const filteredMunicipios = useMemo(() => {
     if (!municipioSearch.trim()) return municipios.slice(0, 10);
-    const term = municipioSearch.toLowerCase().trim();
     return municipios
       .filter(
         (m) =>
-          m.name.toLowerCase().includes(term) ||
-          (m.brs_name && m.brs_name.toLowerCase().includes(term)) ||
-          (m.macroregion && m.macroregion.toLowerCase().includes(term))
+          matchNormalized(m.name, municipioSearch) ||
+          matchNormalized(m.brs_name, municipioSearch) ||
+          matchNormalized(m.macroregion, municipioSearch)
       )
       .slice(0, 15);
   }, [municipios, municipioSearch]);
 
-  // Filtragem de pacientes (Uso Comum entre Unidades)
+  // Filtragem de pacientes (Uso Comum entre Unidades - insensível a acentuação)
   const filteredPatients = useMemo(() => {
     return patients.filter((p) => {
       // Se há termo de busca por nome ou CPF, busca em TODAS as unidades da rede
       if (searchTerm.trim()) {
-        const term = searchTerm.toLowerCase().replace(/[.\-]/g, "");
-        const cleanCpf = p.cpf.replace(/[.\-]/g, "");
-        const matchName = p.full_name.toLowerCase().includes(term);
-        const matchCpf = cleanCpf.includes(term);
-        const matchCns = p.cns?.replace(/\s/g, "").includes(term);
+        const cleanDigits = searchTerm.replace(/\D/g, "");
+        const matchName = matchNormalized(p.full_name, searchTerm);
+        const matchCpf = cleanDigits && p.cpf.replace(/\D/g, "").includes(cleanDigits);
+        const matchCns = p.cns?.replace(/\s/g, "").includes(searchTerm.trim());
         if (!matchName && !matchCpf && !matchCns) return false;
       } else if (selectedUnitId !== "all" && p.unit_id !== selectedUnitId) {
         return false;
@@ -421,23 +425,41 @@ export default function PacientesPage() {
                         className="hover:bg-[#F9FAFB] transition-colors"
                       >
                         <td className="py-3 px-3 font-semibold text-[#171A20]">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span>{patient.full_name}</span>
-                            {patient.gender && patient.gender !== "nao_informado" && (
-                              <span className="text-[10px] bg-gray-100 text-gray-700 font-semibold px-1 py-0.2 rounded border border-gray-200">
-                                {patient.gender === "M" ? "Masc" : patient.gender === "F" ? "Fem" : patient.gender}
-                              </span>
-                            )}
-                            {patient.afsesab_status === "paciente_existe" ? (
-                              <Badge variant="outline" className="text-[9px] bg-emerald-50 text-emerald-800 border-emerald-300 font-normal">
-                                Cadastrado no AFSESAB
-                              </Badge>
-                            ) : patient.afsesab_status === "novo_paciente" ? (
-                              <Badge variant="outline" className="text-[9px] bg-amber-50 text-amber-800 border-amber-300 font-normal">
-                                Sem cadastro no AFSESAB
-                              </Badge>
-                            ) : null}
-                          </div>
+                          {(() => {
+                            const ageCalc = calculatePatientAgeAtEvaluation(patient.birth_date, new Date());
+                            return (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span>{patient.full_name}</span>
+                                {patient.gender && patient.gender !== "nao_informado" && (
+                                  <span className="text-[10px] bg-gray-100 text-gray-700 font-semibold px-1 py-0.2 rounded border border-gray-200">
+                                    {patient.gender === "M" ? "Masc" : patient.gender === "F" ? "Fem" : patient.gender}
+                                  </span>
+                                )}
+                                {ageCalc.faixaEtaria && (
+                                  <Badge
+                                    variant="outline"
+                                    className={`text-[9px] font-bold px-1.5 py-0 border ${ageCalc.badgeStyles.fullBadgeClass}`}
+                                  >
+                                    {ageCalc.faixaEtariaLabel}
+                                  </Badge>
+                                )}
+                                {ageCalc.idadeFormatada !== "Não informada" && (
+                                  <span className="text-[11px] text-slate-500 font-normal">
+                                    ({ageCalc.idadeFormatada})
+                                  </span>
+                                )}
+                                {patient.afsesab_status === "paciente_existe" ? (
+                                  <Badge variant="outline" className="text-[9px] bg-emerald-50 text-emerald-800 border-emerald-300 font-normal">
+                                    Cadastrado no AFSESAB
+                                  </Badge>
+                                ) : patient.afsesab_status === "novo_paciente" ? (
+                                  <Badge variant="outline" className="text-[9px] bg-amber-50 text-amber-800 border-amber-300 font-normal">
+                                    Sem cadastro no AFSESAB
+                                  </Badge>
+                                ) : null}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="py-3 px-3 font-mono text-[#393C41]">
                           {patient.cpf_not_provided || patient.cpf === "Não informado" ? (
@@ -521,7 +543,7 @@ export default function PacientesPage() {
         open={Boolean(selectedPatientForHistory)}
         onOpenChange={(open) => !open && setSelectedPatientForHistory(null)}
         title={`Prontuário & Processos — ${selectedPatientForHistory?.full_name}`}
-        description={`CPF: ${selectedPatientForHistory?.cpf} · Cartão SUS: ${selectedPatientForHistory?.cns || "Não informado"} · Município: ${selectedPatientForHistory?.municipality_name || "Bahia"}`}
+        description={`CPF: ${selectedPatientForHistory?.cpf} · Idade: ${selectedPatientHistoryAge?.idadeFormatada || "N/I"} (${selectedPatientHistoryAge?.faixaEtariaLabel || "Faixa etária N/I"}) · Cartão SUS: ${selectedPatientForHistory?.cns || "Não informado"} · Município: ${selectedPatientForHistory?.municipality_name || "Bahia"}`}
         maxWidth="lg"
       >
         <div className="space-y-5 text-xs">

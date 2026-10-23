@@ -32,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { CID, Farmaco, TipoParecer } from "@/lib/types";
+import { matchNormalized } from "@/lib/utils";
 
 export default function CadastrosPage() {
   const {
@@ -104,7 +105,9 @@ export default function CadastrosPage() {
   // =========================================================================
   const filteredFarmacos = useMemo(() => {
     return farmacos.filter((f) => {
-      const matchSearch = f.name.toLowerCase().includes(farmacoSearch.toLowerCase());
+      const matchSearch =
+        matchNormalized(f.name, farmacoSearch) ||
+        matchNormalized(f.component, farmacoSearch);
       if (!matchSearch) return false;
 
       if (farmacoComponentFilter !== "all") {

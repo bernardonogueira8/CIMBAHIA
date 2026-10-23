@@ -28,6 +28,10 @@ import {
   Compass,
   Loader2,
   RotateCcw,
+  Mail,
+  Phone,
+  Clock,
+  Save,
 } from "lucide-react";
 import { useApp } from "@/lib/context/AppContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -35,7 +39,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
-import { Patient, ProcessoItem, Processo, Municipio, CpfLookupResult, CID } from "@/lib/types";
+import { Patient, ProcessoItem, Processo, ProcessoStatus, Municipio, CpfLookupResult, CID } from "@/lib/types";
+import { calculatePatientAgeAtEvaluation } from "@/lib/patient-age";
+import { formatDate, formatStatusLabel, matchNormalized, normalizeText } from "@/lib/utils";
 
 const formatCPF = (value: string) => {
   return value
@@ -67,6 +73,10 @@ export default function NovoProcessoPage() {
   const [assunto, setAssunto] = useState("");
   const [origemId, setOrigemId] = useState("");
   const [priority, setPriority] = useState<"normal" | "urgente" | "judicial">("normal");
+  const [contatoEmail, setContatoEmail] = useState("");
+  const [contatoTelefone, setContatoTelefone] = useState("");
+  const [triagemEtapa, setTriagemEtapa] = useState<"triagem" | "em_observacao">("triagem");
+  const [observacaoMotivo, setObservacaoMotivo] = useState("");
 
   // 2. Paciente & Município Herdado
   const [selectedPatientId, setSelectedPatientId] = useState<string>("");
@@ -129,6 +139,10 @@ export default function NovoProcessoPage() {
     setAssunto("");
     setOrigemId("");
     setPriority("normal");
+    setContatoEmail("");
+    setContatoTelefone("");
+    setTriagemEtapa("triagem");
+    setObservacaoMotivo("");
     setSelectedPatientId("");
     setPatientSearch("");
     setIsPatientDropdownOpen(false);
@@ -203,14 +217,14 @@ export default function NovoProcessoPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Pacientes filtrados
+  // Pacientes filtrados (busca insensível a acentuação e caixa)
   const filteredPatients = useMemo(() => {
     if (!patientSearch.trim()) return patients.slice(0, 8);
-    const term = patientSearch.toLowerCase();
+    const cleanDigits = patientSearch.replace(/\D/g, "");
     return patients.filter((p) => {
-      const matchName = p.full_name.toLowerCase().includes(term);
-      const matchCpf = p.cpf && p.cpf.includes(term);
-      const matchCns = p.cns && p.cns.includes(term);
+      const matchName = matchNormalized(p.full_name, patientSearch);
+      const matchCpf = cleanDigits && p.cpf && p.cpf.replace(/\D/g, "").includes(cleanDigits);
+      const matchCns = p.cns && p.cns.includes(patientSearch.trim());
       return matchName || matchCpf || matchCns;
     });
   }, [patients, patientSearch]);
@@ -218,6 +232,12 @@ export default function NovoProcessoPage() {
   const selectedPatient = useMemo(() => {
     return patients.find((p) => p.id === selectedPatientId) || null;
   }, [patients, selectedPatientId]);
+
+  // Idade e faixa etária do paciente no momento da autuação/avaliação
+  const selectedPatientAge = useMemo(() => {
+    if (!selectedPatient?.birth_date) return null;
+    return calculatePatientAgeAtEvaluation(selectedPatient.birth_date, dataAbertura || new Date());
+  }, [selectedPatient?.birth_date, dataAbertura]);
 
   // Histórico prévio de processos do paciente selecionado
   const patientPastProcessos = useMemo(() => {
@@ -232,6 +252,9 @@ export default function NovoProcessoPage() {
   // Quando seleciona um paciente, herda seu município ou status interestadual
   const handleSelectPatient = (p: Patient) => {
     setSelectedPatientId(p.id);
+    if (p.phone && !contatoTelefone) {
+      setContatoTelefone(p.phone);
+    }
     if (p.is_outside_bahia || p.municipality_id === "fora-da-bahia") {
       setIsProcessoOutsideBahia(true);
       setMunicipioId("fora-da-bahia");
@@ -364,12 +387,11 @@ export default function NovoProcessoPage() {
     return null;
   }, [selectedMunicipio, units, isProcessoOutsideBahia, municipioId]);
 
-  // Municípios filtrados para o modal de cadastro rápido de paciente
+  // Municípios filtrados para o modal de cadastro rápido de paciente (insensível a acentos)
   const filteredNewPatientMunicipios = useMemo(() => {
     if (!newPatientMunicipioSearch.trim()) return municipios.slice(0, 10);
-    const term = newPatientMunicipioSearch.toLowerCase().trim();
     return municipios
-      .filter((m) => m.name.toLowerCase().includes(term) || (m.brs_name && m.brs_name.toLowerCase().includes(term)))
+      .filter((m) => matchNormalized(m.name, newPatientMunicipioSearch) || matchNormalized(m.brs_name, newPatientMunicipioSearch))
       .slice(0, 15);
   }, [municipios, newPatientMunicipioSearch]);
 
@@ -388,19 +410,17 @@ export default function NovoProcessoPage() {
     if (newPatientDeducedMun.brs_name) {
       const cleanBrs = newPatientDeducedMun.brs_name
         .replace(/^(BRS|NRS|Base Regional de Saúde|Núcleo Regional de Saúde)\s+/i, "")
-        .trim()
-        .toLowerCase();
-      return units.find((u) => u.name.toLowerCase().includes(cleanBrs)) || null;
+        .trim();
+      return units.find((u) => matchNormalized(u.name, cleanBrs)) || null;
     }
     return null;
   }, [newPatientDeducedMun, units]);
 
-  // Municípios filtrados para a Seção 2 do processo
+  // Municípios filtrados para a Seção 2 do processo (insensível a acentos)
   const filteredProcessoMunicipios = useMemo(() => {
     if (!municipioSearchInput.trim()) return municipios.slice(0, 10);
-    const term = municipioSearchInput.toLowerCase().trim();
     return municipios
-      .filter((m) => m.name.toLowerCase().includes(term) || (m.brs_name && m.brs_name.toLowerCase().includes(term)))
+      .filter((m) => matchNormalized(m.name, municipioSearchInput) || matchNormalized(m.brs_name, municipioSearchInput))
       .slice(0, 15);
   }, [municipios, municipioSearchInput]);
 
@@ -442,12 +462,11 @@ export default function NovoProcessoPage() {
     };
   }, [cidInput, cidNaoInformado, isCidDropdownOpen]);
 
-  // Fármacos filtrados com autocomplete (Base Oficial 4.086 Fármacos.xlsx)
+  // Fármacos filtrados com autocomplete (Base Oficial 4.086 Fármacos.xlsx - insensível a acentuação)
   const filteredFarmacos = useMemo(() => {
     if (!farmacoInput.trim()) return farmacos.slice(0, 10);
-    const term = farmacoInput.toLowerCase().trim();
     return farmacos
-      .filter((f) => f.name.toLowerCase().includes(term) || (f.component && f.component.toLowerCase().includes(term)))
+      .filter((f) => matchNormalized(f.name, farmacoInput) || matchNormalized(f.component, farmacoInput))
       .slice(0, 15);
   }, [farmacoInput, farmacos]);
 
@@ -689,9 +708,8 @@ export default function NovoProcessoPage() {
     }
   };
 
-  // Submissão do Processo SEI
-  const handleSubmitProcesso = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Submissão do Processo SEI (Suporta Salvar Parcialmente na Triagem ou Concluir Triagem e Enviar para Parecer)
+  const handleSaveProcessoWithStatus = async (targetMode: "parcial_triagem" | "enviar_parecer") => {
     setErrorMessage("");
 
     if (!numeroSei.trim()) {
@@ -742,8 +760,28 @@ export default function NovoProcessoPage() {
         }
       }
 
-      // Primeiro status oficial do fluxo: 1. Triagem (Abertura do processo)
-      const initialStatus = "triagem";
+      // Determinação de status e trilha de auditoria:
+      let finalStatus: ProcessoStatus = "triagem";
+      let notesText = "";
+      let documentsOk = false;
+      let completedAt: string | null = null;
+
+      if (targetMode === "enviar_parecer") {
+        finalStatus = "aguardando_parecer";
+        documentsOk = true;
+        completedAt = new Date().toISOString();
+        notesText = `Triagem documental concluída na autuação por ${currentUser?.full_name || "Servidor Administrativo"}. Encaminhado diretamente para a fila de pareceristas.`;
+      } else {
+        // Salvar parcial (mantém na etapa inicial de triagem para conferência posterior)
+        finalStatus = triagemEtapa === "em_observacao" ? "em_observacao" : "triagem";
+        documentsOk = false;
+        notesText =
+          triagemEtapa === "em_observacao"
+            ? observacaoMotivo.trim()
+              ? `Processo autuado e retido em observação na triagem: ${observacaoMotivo.trim()}`
+              : "Processo autuado na etapa de observação da triagem documental."
+            : "Processo salvo parcialmente na triagem inicial para conferência e edição posterior.";
+      }
 
       // SLA limite (10 dias padrão)
       const limitDate = new Date();
@@ -757,6 +795,10 @@ export default function NovoProcessoPage() {
         numero_sei: numeroSei.trim().toUpperCase(),
         data_abertura: dataAbertura,
         assunto: subjectText,
+        email: contatoEmail.trim() || null,
+        telefone: contatoTelefone.trim() || null,
+        contato_email: contatoEmail.trim() || null,
+        contato_telefone: contatoTelefone.trim() || null,
         paciente_id: selectedPatientId,
         paciente: selectedPatient,
         origem_id: origemId,
@@ -765,13 +807,13 @@ export default function NovoProcessoPage() {
         municipio: mun,
         unidade_id: deducedUnit?.id || "",
         unidade: deducedUnit,
-        status: initialStatus,
+        status: finalStatus,
         priority: priority,
-        triagem_documents_ok: true,
-        triagem_notes: "Processo autuado no CimBahia com base no SEI e cadastrado na triagem inicial.",
+        triagem_documents_ok: documentsOk,
+        triagem_notes: notesText,
         triagem_by_id: currentUser?.id,
         triagem_by_name: currentUser?.full_name,
-        triagem_completed_at: new Date().toISOString(),
+        triagem_completed_at: completedAt,
         items: items,
         sla_limit_date: limitDate.toISOString().split("T")[0],
         days_in_current_status: 1,
@@ -781,10 +823,10 @@ export default function NovoProcessoPage() {
             id: `h-init-${Date.now()}`,
             processo_id: "",
             from_status: null,
-            to_status: initialStatus,
+            to_status: finalStatus,
             user_id: currentUser?.id || "sistema",
-            user_name: currentUser?.full_name || "Triagem Inicial",
-            notes: "Processo autuado no CimBahia e registrado na triagem inicial.",
+            user_name: currentUser?.full_name || "Triagem Administrativa",
+            notes: notesText,
             timestamp: new Date().toISOString(),
           },
         ],
@@ -801,6 +843,11 @@ export default function NovoProcessoPage() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleSubmitProcesso = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await handleSaveProcessoWithStatus("enviar_parecer");
   };
 
   return (
@@ -841,9 +888,17 @@ export default function NovoProcessoPage() {
             <RotateCcw className="w-3.5 h-3.5" />
             <span>Limpar Formulário</span>
           </Button>
-          <Badge variant="outline" className="text-xs bg-emerald-50 text-emerald-700 border-emerald-300">
-            Etapa: Criar Processo (Triagem)
-          </Badge>
+          {triagemEtapa === "em_observacao" ? (
+            <Badge variant="outline" className="text-xs bg-amber-50 text-amber-800 border-amber-300 flex items-center gap-1 font-semibold">
+              <Clock className="h-3 w-3 text-amber-600" />
+              Etapa: Triagem (Em Observação)
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-xs bg-emerald-50 text-emerald-700 border-emerald-300 flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+              Etapa: Criar Processo (Triagem)
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -944,6 +999,120 @@ export default function NovoProcessoPage() {
                 />
               </div>
             </div>
+
+            {/* Contatos do Processo SEI: E-mail e Telefone */}
+            <div className="pt-2 border-t border-slate-100">
+              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                Canais de Contato do Processo SEI
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+                    <Mail className="h-3.5 w-3.5 text-emerald-600" />
+                    E-mail de Contato
+                  </label>
+                  <Input
+                    type="email"
+                    placeholder="ex: contato@saude.ba.gov.br ou paciente@email.com"
+                    value={contatoEmail}
+                    onChange={(e) => setContatoEmail(e.target.value)}
+                    className="text-xs"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    E-mail oficial para notificações, comunicados e retorno de decisões.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+                    <Phone className="h-3.5 w-3.5 text-emerald-600" />
+                    Telefone de Contato
+                  </label>
+                  <Input
+                    type="tel"
+                    placeholder="ex: (71) 98765-4321"
+                    value={contatoTelefone}
+                    onChange={(e) => setContatoTelefone(e.target.value)}
+                    className="text-xs"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Telefone ou WhatsApp para conferência rápida e comunicação direta na triagem.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Etapa da Triagem Inicial: Triagem Normal vs Observação */}
+            <div className="pt-2 border-t border-slate-100">
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Etapa da Triagem
+                </label>
+                <span className="text-[11px] text-slate-400">
+                  Defina o encaminhamento inicial no fluxo
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setTriagemEtapa("triagem")}
+                  className={`p-3 rounded-lg border text-left flex items-start gap-3 transition-all ${
+                    triagemEtapa === "triagem"
+                      ? "border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-500/20 text-emerald-950 shadow-sm"
+                      : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+                  }`}
+                >
+                  <FileText className={`h-4 w-4 mt-0.5 flex-shrink-0 ${triagemEtapa === "triagem" ? "text-emerald-600" : "text-slate-400"}`} />
+                  <div>
+                    <div className="font-semibold text-xs">Triagem Inicial (Padrão)</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">
+                      Processo cadastrado para conferência documental e encaminhamento normal à fila de parecer.
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTriagemEtapa("em_observacao")}
+                  className={`p-3 rounded-lg border text-left flex items-start gap-3 transition-all ${
+                    triagemEtapa === "em_observacao"
+                      ? "border-amber-500 bg-amber-50/70 ring-2 ring-amber-500/20 text-amber-950 shadow-sm"
+                      : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+                  }`}
+                >
+                  <Clock className={`h-4 w-4 mt-0.5 flex-shrink-0 ${triagemEtapa === "em_observacao" ? "text-amber-600" : "text-slate-400"}`} />
+                  <div>
+                    <div className="font-semibold text-xs flex items-center gap-1.5">
+                      <span>Observação</span>
+                      <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded font-bold uppercase">
+                        Nova Etapa
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">
+                      Reter processo em observação por pendência de documentos, laudos ou contato prévio.
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              {triagemEtapa === "em_observacao" && (
+                <div className="mt-3 p-3 bg-amber-50/90 border border-amber-300 rounded-lg space-y-1.5 animate-in fade-in">
+                  <label className="block text-xs font-semibold text-amber-950 flex items-center gap-1.5">
+                    <Info className="h-3.5 w-3.5 text-amber-700" />
+                    Motivo / Detalhes da Observação
+                  </label>
+                  <Input
+                    placeholder="Ex: Aguardando exames complementares do paciente ou retorno do e-mail/telefone..."
+                    value={observacaoMotivo}
+                    onChange={(e) => setObservacaoMotivo(e.target.value)}
+                    className="text-xs bg-white border-amber-300 focus:ring-amber-500"
+                  />
+                  <p className="text-[10px] text-amber-800">
+                    Esta observação ficará visível na fila e na linha do tempo do processo SEI para toda a equipe.
+                  </p>
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -1007,10 +1176,24 @@ export default function NovoProcessoPage() {
                           Novo no AFSESAB
                         </Badge>
                       ) : null}
+                      {selectedPatientAge?.faixaEtaria && (
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0 border ${selectedPatientAge.badgeStyles.fullBadgeClass}`}
+                        >
+                          {selectedPatientAge.faixaEtariaLabel}
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-[11px] text-slate-600">
                       <strong>CNS:</strong> {selectedPatient.cns || "Não informado"} •{" "}
-                      <strong>Nascimento:</strong> {selectedPatient.birth_date || "N/I"} •{" "}
+                      <strong>Nascimento:</strong> {selectedPatient.birth_date || "N/I"}{" "}
+                      {selectedPatientAge?.idadeFormatada && selectedPatientAge.idadeFormatada !== "Não informada" && (
+                        <span className="font-semibold text-slate-800">
+                          (Idade na Avaliação: {selectedPatientAge.idadeFormatada})
+                        </span>
+                      )}{" "}
+                      •{" "}
                       <strong>Telefone:</strong> {selectedPatient.phone || "N/I"}
                     </p>
                     <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-700">
@@ -1619,22 +1802,38 @@ export default function NovoProcessoPage() {
           </CardContent>
         </Card>
 
-        {/* Rodapé / Ações */}
-        <div className="flex items-center justify-between pt-2">
+        {/* Rodapé / Ações de Autuação e Triagem */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200">
           <Link href="/atendimentos">
-            <Button type="button" variant="ghost" size="sm" className="text-xs text-slate-600">
+            <Button type="button" variant="ghost" size="sm" className="text-xs text-slate-600 hover:text-slate-900">
               Cancelar
             </Button>
           </Link>
 
-          <Button
-            type="submit"
-            disabled={isSaving}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-6 flex items-center gap-2 shadow-sm"
-          >
-            <Send className="h-4 w-4" />
-            {isSaving ? "Autuando Processo..." : "Criar Processo e Enviar para Parecer"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              disabled={isSaving}
+              onClick={() => handleSaveProcessoWithStatus("parcial_triagem")}
+              variant="outline"
+              className="border-slate-300 text-slate-700 hover:bg-slate-50 text-xs px-4 flex items-center gap-2 shadow-xs font-medium"
+              title="Salva o processo e mantém na etapa de triagem administrativa para continuar a conferência ou edição a qualquer momento"
+            >
+              <Save className="h-4 w-4 text-slate-500" />
+              {isSaving ? "Salvando..." : "Salvar Parcialmente (Ficar em Triagem)"}
+            </Button>
+
+            <Button
+              type="button"
+              disabled={isSaving}
+              onClick={() => handleSaveProcessoWithStatus("enviar_parecer")}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-5 flex items-center gap-2 shadow-sm font-semibold"
+              title="Conclui formalmente a triagem administrativa e encaminha o processo diretamente para a fila dos farmacêuticos pareceristas"
+            >
+              <Send className="h-4 w-4" />
+              {isSaving ? "Processando..." : "Concluir Triagem e Enviar para Parecer"}
+            </Button>
+          </div>
         </div>
       </form>
 
@@ -1665,16 +1864,16 @@ export default function NovoProcessoPage() {
                       <span className="font-mono font-bold text-slate-900">{proc.numero_sei}</span>
                       <Badge
                         variant="outline"
-                        className={`text-[10px] ${proc.status === "concluido" || proc.status.startsWith("concluido_")
+                        className={`text-[10px] font-medium ${proc.status === "concluido" || proc.status.startsWith("concluido_")
                           ? "bg-emerald-100 text-emerald-800 border-emerald-300"
                           : "bg-blue-100 text-blue-800 border-blue-300"
                           }`}
                       >
-                        {proc.status}
+                        {formatStatusLabel(proc.status)}
                       </Badge>
                     </div>
                     <span className="text-[11px] text-slate-500">
-                      Entrada: {proc.data_abertura}
+                      Entrada: {formatDate(proc.data_abertura)}
                     </span>
                   </div>
 

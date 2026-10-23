@@ -32,6 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { useApp } from "@/lib/context/AppContext";
 import { ParecerSearchResponse, ParecerSearchResultItem } from "@/app/api/pareceres/route";
+import { formatDate, normalizeText } from "@/lib/utils";
 
 export default function BancoPareceresPage() {
   const { processos } = useApp();
@@ -213,7 +214,7 @@ export default function BancoPareceresPage() {
                   type="button"
                   onClick={() => setSearchTerm(sub)}
                   className={`text-xs px-2.5 py-1 rounded-full border transition-all flex items-center gap-1.5 ${
-                    searchTerm.toLowerCase() === sub.toLowerCase()
+                    normalizeText(searchTerm) === normalizeText(sub)
                       ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
                       : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
                   }`}
@@ -399,7 +400,15 @@ export default function BancoPareceresPage() {
 
                 <CardContent className="p-4 space-y-3">
                   {/* METADADOS DO PARECER */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-slate-600 bg-slate-50 p-2.5 rounded-md">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs text-slate-600 bg-slate-50 p-2.5 rounded-md border border-slate-200/60">
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-semibold">
+                        Paciente Requerente
+                      </span>
+                      <strong className="text-slate-900 truncate block" title={item.paciente_nome || "Precedente Geral"}>
+                        {item.paciente_nome || "Precedente Geral"}
+                      </strong>
+                    </div>
                     <div>
                       <span className="text-slate-400 block text-[10px] uppercase font-semibold">
                         Fármaco / Substância
@@ -422,21 +431,42 @@ export default function BancoPareceresPage() {
                     </div>
                     <div>
                       <span className="text-slate-400 block text-[10px] uppercase font-semibold">
-                        Data do Parecer
+                        Data da Avaliação
                       </span>
-                      <strong className="text-slate-800">{item.data}</strong>
+                      <strong className="text-slate-800">{formatDate(item.data)}</strong>
                     </div>
                   </div>
 
-                  {/* TEXTO DA FUNDAMENTAÇÃO TÉCNICA */}
+                  {/* TEXTO DA FUNDAMENTAÇÃO TÉCNICA ESPECÍFICA DO ITEM */}
                   <div>
-                    <span className="text-xs font-semibold text-slate-700 block mb-1">
-                      Fundamentação Farmacêutica & Clínica:
-                    </span>
-                    <div className="p-3 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 leading-relaxed font-sans whitespace-pre-wrap">
+                    <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
+                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <Pill className="h-3.5 w-3.5 text-emerald-600" />
+                        Fundamentação Técnica e Justificativa Clínica do Fármaco:
+                      </span>
+                      {item.posologia && (
+                        <span className="text-[11px] text-slate-500 font-mono bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                          Posologia: {item.posologia}
+                        </span>
+                      )}
+                    </div>
+                    <div className="p-3 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 leading-relaxed font-sans whitespace-pre-wrap shadow-xs">
                       {item.fundamentacao_tecnica}
                     </div>
                   </div>
+
+                  {/* PARECER CONSOLIDADO GERAL (OPCIONAL/COLAPSÁVEL) */}
+                  {item.parecer_consolidado && item.parecer_consolidado !== item.fundamentacao_tecnica && (
+                    <details className="text-xs text-slate-600 border border-slate-200 rounded-lg p-2.5 bg-slate-50/60">
+                      <summary className="font-semibold text-slate-700 cursor-pointer hover:text-slate-900 select-none flex items-center gap-1.5">
+                        <FileText className="h-3.5 w-3.5 text-slate-500" />
+                        Ver Parecer Técnico Consolidado Geral do Processo SEI
+                      </summary>
+                      <div className="mt-2 p-2.5 bg-white border border-slate-200 rounded text-[11px] font-mono leading-relaxed whitespace-pre-wrap text-slate-700">
+                        {item.parecer_consolidado}
+                      </div>
+                    </details>
+                  )}
 
                   {/* RECOMENDAÇÕES */}
                   {item.recomendacoes && (

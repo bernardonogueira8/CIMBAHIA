@@ -83,6 +83,38 @@ export async function GET(request: Request) {
     .replace(/[%_]/g, "\\$&");
   const start = (page - 1) * limit;
 
+  // 1. Tenta consulta insensível a acentuação e maiúsculas via RPC cb_search_cids (PostgreSQL unaccent)
+  const { data: rpcData, error: rpcError } = await supabase.rpc("cb_search_cids", {
+    search_term: search,
+    chapter_filter: chapter,
+    page_limit: limit,
+    page_offset: start,
+  });
+
+  if (!rpcError && Array.isArray(rpcData)) {
+    const total = rpcData.length > 0 ? Number(rpcData[0].total_count || 0) : 0;
+    const cids = rpcData.map(({ total_count, ...cid }) => cid);
+    return NextResponse.json(
+      {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+        cids,
+      },
+      {
+        headers: {
+          "Cache-Control": "private, no-store, max-age=0",
+        },
+      }
+    );
+  }
+
+  if (rpcError) {
+    console.warn("RPC cb_search_cids indisponível, aplicando fallback direto:", rpcError.message);
+  }
+
+  // 2. Fallback: consulta direta à tabela cb_cids
   let query = supabase
     .from("cb_cids")
     .select("id, code, description, chapter, group_name, active, created_at", {
@@ -113,7 +145,7 @@ export async function GET(request: Request) {
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
+      totalPages: Math.ceil(total / limit) || 1,
       cids: data || [],
     },
     {

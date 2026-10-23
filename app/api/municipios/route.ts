@@ -8,35 +8,38 @@ import {
 } from "@/lib/territory-data";
 import { Municipio } from "@/lib/types";
 
+import { matchNormalized } from "@/lib/utils";
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const brs = searchParams.get("brs");
   const nrs = searchParams.get("nrs");
   const macro = searchParams.get("macro");
-  const q = (searchParams.get("q") || "").trim().toLowerCase();
+  const q = searchParams.get("q");
 
   let filtered: Municipio[] = ALL_BAHIA_MUNICIPIOS;
 
   if (brs) {
-    filtered = filtered.filter(
-      (m: Municipio) => (m.brs_name || "").toLowerCase().includes(brs.toLowerCase())
+    filtered = filtered.filter((m: Municipio) =>
+      matchNormalized(m.brs_name, brs)
     );
   }
   if (nrs) {
-    filtered = filtered.filter(
-      (m: Municipio) => (m.nrs_name || "").toLowerCase().includes(nrs.toLowerCase())
+    filtered = filtered.filter((m: Municipio) =>
+      matchNormalized(m.nrs_name, nrs)
     );
   }
   if (macro) {
-    filtered = filtered.filter(
-      (m: Municipio) => (m.macroregion || "").toLowerCase().includes(macro.toLowerCase())
+    filtered = filtered.filter((m: Municipio) =>
+      matchNormalized(m.macroregion, macro)
     );
   }
   if (q) {
     filtered = filtered.filter(
       (m: Municipio) =>
-        m.name.toLowerCase().includes(q) ||
-        m.ibge_code.includes(q)
+        matchNormalized(m.name, q) ||
+        m.ibge_code.includes(q) ||
+        matchNormalized(m.brs_name, q)
     );
   }
 

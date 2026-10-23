@@ -177,6 +177,8 @@ export interface TipoParecer {
 // 3. PACIENTES / REQUERENTES
 // ------------------------------------------------------------------------------
 
+export type FaixaEtariaPaciente = "recem_nascido" | "crianca" | "adulto" | "idoso";
+
 export interface Patient {
   id: string;
   unit_id: string;
@@ -198,6 +200,9 @@ export interface Patient {
   afsesab_status?: "novo_paciente" | "paciente_existe" | string | null;
   afsesab_status_label?: string | null;
   cadastrado_afsesab?: boolean;
+  idade_atual?: number | null;
+  faixa_etaria?: FaixaEtariaPaciente | null;
+  faixa_etaria_label?: string | null;
   created_by?: string | null;
   created_at?: string;
   updated_at?: string;
@@ -248,6 +253,8 @@ export interface CpfLookupResult {
 // 1. Criar processo (triagem) -> 2. Aguardando Parecer (assumir) -> 3. Em análise -> 4. Concluído
 export type ProcessoStatus =
   | "triagem"
+  | "observacao"
+  | "em_observacao"
   | "aguardando_parecer"
   | "em_analise"
   | "concluido"
@@ -324,6 +331,10 @@ export interface Processo {
   assunto: string;
   paciente_id: string;
   paciente?: Patient | null;
+  paciente_idade_na_avaliacao?: number | null;
+  paciente_idade_formatada?: string | null;
+  paciente_faixa_etaria?: FaixaEtariaPaciente | null;
+  paciente_faixa_etaria_label?: string | null;
   origem_id: string;
   origem?: Origem | null;
   municipio_id: string;
@@ -332,6 +343,12 @@ export interface Processo {
   unidade?: Unit | null;
   status: ProcessoStatus;
   priority?: "normal" | "urgente" | "judicial";
+  
+  // Identificação e Contato do Processo SEI
+  email?: string | null;
+  telefone?: string | null;
+  contato_email?: string | null;
+  contato_telefone?: string | null;
   
   // Triagem
   triagem_by_id?: string | null;
@@ -367,9 +384,11 @@ export interface Processo {
 export function isProcessoInFirstStatus(proc: Processo): boolean {
   if (!proc) return false;
 
-  // Primeiro status oficial: triagem / aguardando_triagem / em_triagem
+  // Primeiro status oficial: triagem / observacao / em_observacao / aguardando_triagem / em_triagem
   if (
     proc.status === "triagem" ||
+    proc.status === "observacao" ||
+    proc.status === "em_observacao" ||
     proc.status === "aguardando_triagem" ||
     proc.status === "em_triagem"
   ) {

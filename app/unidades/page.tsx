@@ -42,6 +42,7 @@ import {
   Nucleo,
 } from "@/lib/types";
 import { BAHIA_MACRORREGIOES, BAHIA_BRS } from "@/lib/territory-data";
+import { matchNormalized, normalizeText } from "@/lib/utils";
 
 export default function UnidadesEstruturaPage() {
   const {
@@ -182,22 +183,22 @@ export default function UnidadesEstruturaPage() {
     return map;
   }, [units, municipios]);
 
-  // Filtragem de Unidades / Bases
+  // Filtragem de Unidades / Bases (insensível a acentuação)
   const filteredUnits = useMemo(() => {
     return units.filter((u) => {
       const matchSearch =
-        u.name.toLowerCase().includes(unitSearch.toLowerCase()) ||
-        (u.municipality || "").toLowerCase().includes(unitSearch.toLowerCase()) ||
-        (u.macroregion || "").toLowerCase().includes(unitSearch.toLowerCase()) ||
+        matchNormalized(u.name, unitSearch) ||
+        matchNormalized(u.municipality, unitSearch) ||
+        matchNormalized(u.macroregion, unitSearch) ||
         (u.responsible_pharmacists || []).some(
           (p) =>
-            p.full_name.toLowerCase().includes(unitSearch.toLowerCase()) ||
-            p.crf.toLowerCase().includes(unitSearch.toLowerCase())
+            matchNormalized(p.full_name, unitSearch) ||
+            matchNormalized(p.crf, unitSearch)
         );
 
       if (!matchSearch) return false;
 
-      if (unitMacroFilter !== "all" && !u.macroregion.toLowerCase().includes(unitMacroFilter.toLowerCase())) {
+      if (unitMacroFilter !== "all" && !matchNormalized(u.macroregion, unitMacroFilter)) {
         return false;
       }
 
@@ -205,13 +206,13 @@ export default function UnidadesEstruturaPage() {
     });
   }, [units, unitSearch, unitMacroFilter]);
 
-  // Filtragem de Municípios (417)
+  // Filtragem de Municípios (417) (insensível a acentuação)
   const filteredMunicipios = useMemo(() => {
     return municipios.filter((m) => {
       const matchSearch =
-        m.name.toLowerCase().includes(munSearch.toLowerCase()) ||
-        m.ibge_code.includes(munSearch) ||
-        (m.brs_name || "").toLowerCase().includes(munSearch.toLowerCase());
+        matchNormalized(m.name, munSearch) ||
+        m.ibge_code.includes(munSearch.trim()) ||
+        matchNormalized(m.brs_name, munSearch);
 
       if (!matchSearch) return false;
 
@@ -220,8 +221,8 @@ export default function UnidadesEstruturaPage() {
       }
 
       if (munBrsFilter !== "all") {
-        const cleanFilter = munBrsFilter.replace(/^(BRS|NRS)\s+/i, "").trim().toLowerCase();
-        const cleanBrs = (m.brs_name || "").replace(/^(BRS|NRS)\s+/i, "").trim().toLowerCase();
+        const cleanFilter = normalizeText(munBrsFilter.replace(/^(BRS|NRS)\s+/i, ""));
+        const cleanBrs = normalizeText((m.brs_name || "").replace(/^(BRS|NRS)\s+/i, ""));
         if (cleanBrs !== cleanFilter && m.brs_name !== munBrsFilter) return false;
       }
 

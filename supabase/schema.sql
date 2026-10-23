@@ -8,6 +8,7 @@
 -- 0. Extensões essenciais
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "unaccent";
 
 -- Função utilitária para atualização automática de updated_at
 CREATE OR REPLACE FUNCTION public.cb_handle_updated_at()
@@ -150,6 +151,60 @@ CREATE INDEX IF NOT EXISTS idx_cb_cids_code ON public.cb_cids(code);
 REVOKE ALL ON TABLE public.cb_cids FROM PUBLIC, anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.cb_cids TO authenticated;
 
+-- Wrapper imutável para a extensão unaccent visando indexação e buscas aceleradas
+CREATE OR REPLACE FUNCTION public.immutable_unaccent(text)
+  RETURNS text AS
+$func$
+SELECT public.unaccent('public.unaccent', $1)
+$func$ LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_cb_cids_unaccent_desc ON public.cb_cids(public.immutable_unaccent(description));
+
+-- Função RPC para busca de CIDs insensível a acentuação e caixa
+CREATE OR REPLACE FUNCTION public.cb_search_cids(
+  search_term TEXT DEFAULT '',
+  chapter_filter TEXT DEFAULT '',
+  page_limit INT DEFAULT 50,
+  page_offset INT DEFAULT 0
+)
+RETURNS TABLE (
+  id UUID,
+  code TEXT,
+  description TEXT,
+  chapter TEXT,
+  group_name TEXT,
+  active BOOLEAN,
+  created_at TIMESTAMPTZ,
+  total_count BIGINT
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT 
+    c.id,
+    c.code,
+    c.description,
+    c.chapter,
+    c.group_name,
+    c.active,
+    c.created_at,
+    COUNT(*) OVER() AS total_count
+  FROM public.cb_cids c
+  WHERE 
+    (
+      search_term = '' 
+      OR c.code ILIKE ('%' || search_term || '%')
+      OR public.immutable_unaccent(c.description) ILIKE ('%' || public.immutable_unaccent(search_term) || '%')
+    )
+    AND (chapter_filter = '' OR c.chapter = chapter_filter)
+  ORDER BY c.code
+  LIMIT page_limit
+  OFFSET page_offset;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.cb_search_cids TO authenticated, anon;
+
 CREATE TABLE IF NOT EXISTS public.medications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     sigtap_code TEXT,
@@ -258,6 +313,8 @@ CREATE TABLE IF NOT EXISTS public.cb_processos (
     unidade_id UUID REFERENCES public.cb_units(id) ON DELETE SET NULL,
     status TEXT NOT NULL CHECK (status IN (
         'triagem',
+        'observacao',
+        'em_observacao',
         'aguardando_parecer',
         'em_analise',
         'concluido',
@@ -270,6 +327,12 @@ CREATE TABLE IF NOT EXISTS public.cb_processos (
         'concluido_parcial'
     )) DEFAULT 'triagem',
     priority TEXT NOT NULL CHECK (priority IN ('normal', 'urgente', 'judicial')) DEFAULT 'normal',
+    
+    -- Contatos do Processo SEI
+    email TEXT,
+    telefone TEXT,
+    contato_email TEXT,
+    contato_telefone TEXT,
     
     -- Triagem Documental
     triagem_by_id UUID REFERENCES public.cb_profiles(id) ON DELETE SET NULL,
@@ -654,3 +717,201 @@ INSERT INTO public.cb_units (id, name, macroregion, cnes, municipality, email, p
     ('44444444-4444-4444-4444-444444444444', 'Base Regional de Saúde Vitória da Conquista', 'Macrorregional Sudoeste', '2801487', 'Vitória da Conquista', 'brs.conquista@saude.ba.gov.br', '(77) 3424-8100', 'Rua Crescêncio Silveira, 80 - Centro, Vitória da Conquista - BA', true),
     ('55555555-5555-5555-5555-555555555555', 'Central Integrada CimBahia - SESAB Sede', 'Macrorregional Leste', '2801495', 'Salvador', 'cimbahia@saude.ba.gov.br', '(71) 3115-4200', '4ª Avenida, 400 - Centro Administrativo da Bahia (CAB), Salvador - BA', true)
 ON CONFLICT (id) DO NOTHING;
+
+-- ==============================================================================
+-- 9. FUNÇÕES DE IDADE DO PACIENTE NO MOMENTO DA AVALIAÇÃO & FAIXA ETÁRIA
+-- ==============================================================================
+
+-- 9.1 Função para calcular idade em dias
+CREATE OR REPLACE FUNCTION public.cb_calcular_idade_dias(
+    p_birth_date DATE,
+    p_eval_date DATE DEFAULT CURRENT_DATE
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+BEGIN
+    IF p_birth_date IS NULL THEN
+        RETURN NULL;
+    END IF;
+    IF p_eval_date IS NULL THEN
+        p_eval_date := CURRENT_DATE;
+    END IF;
+    RETURN (p_eval_date - p_birth_date);
+END;
+$$;
+
+-- 9.2 Função para calcular idade em anos completos
+CREATE OR REPLACE FUNCTION public.cb_calcular_idade_anos(
+    p_birth_date DATE,
+    p_eval_date DATE DEFAULT CURRENT_DATE
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+BEGIN
+    IF p_birth_date IS NULL THEN
+        RETURN NULL;
+    END IF;
+    IF p_eval_date IS NULL THEN
+        p_eval_date := CURRENT_DATE;
+    END IF;
+    RETURN DATE_PART('year', AGE(p_eval_date, p_birth_date))::INTEGER;
+END;
+$$;
+
+-- 9.3 Função para calcular idade formatada amigável (dias, meses ou anos)
+CREATE OR REPLACE FUNCTION public.cb_calcular_idade_formatada(
+    p_birth_date DATE,
+    p_eval_date DATE DEFAULT CURRENT_DATE
+)
+RETURNS TEXT
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+    v_dias INTEGER;
+    v_anos INTEGER;
+    v_meses INTEGER;
+BEGIN
+    IF p_birth_date IS NULL THEN
+        RETURN 'Não informada';
+    END IF;
+    IF p_eval_date IS NULL THEN
+        p_eval_date := CURRENT_DATE;
+    END IF;
+
+    v_dias := p_eval_date - p_birth_date;
+    IF v_dias < 0 THEN
+        RETURN 'Data inválida';
+    END IF;
+
+    -- Recém-nascido: 0 a 28 dias
+    IF v_dias <= 28 THEN
+        IF v_dias = 1 THEN
+            RETURN '1 dia';
+        ELSE
+            RETURN v_dias || ' dias';
+        END IF;
+    END IF;
+
+    v_anos := DATE_PART('year', AGE(p_eval_date, p_birth_date))::INTEGER;
+    v_meses := (DATE_PART('year', AGE(p_eval_date, p_birth_date))::INTEGER * 12) + DATE_PART('month', AGE(p_eval_date, p_birth_date))::INTEGER;
+
+    -- Menor de 1 ano
+    IF v_anos < 1 THEN
+        IF v_meses <= 1 THEN
+            RETURN '1 mês';
+        ELSE
+            RETURN v_meses || ' meses';
+        END IF;
+    END IF;
+
+    -- 1 ano ou mais
+    IF v_anos = 1 THEN
+        RETURN '1 ano';
+    ELSE
+        RETURN v_anos || ' anos';
+    END IF;
+END;
+$$;
+
+-- 9.4 Função para classificar faixa etária (código interno):
+-- Recém-nascido (0 a 28 dias), Criança (29 dias a 17 anos), Adulto (18 a 59 anos), Idoso (60+ anos)
+CREATE OR REPLACE FUNCTION public.cb_classificar_faixa_etaria(
+    p_birth_date DATE,
+    p_eval_date DATE DEFAULT CURRENT_DATE
+)
+RETURNS TEXT
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+    v_dias INTEGER;
+    v_anos INTEGER;
+BEGIN
+    IF p_birth_date IS NULL THEN
+        RETURN NULL;
+    END IF;
+    IF p_eval_date IS NULL THEN
+        p_eval_date := CURRENT_DATE;
+    END IF;
+
+    v_dias := p_eval_date - p_birth_date;
+    IF v_dias < 0 THEN
+        RETURN NULL;
+    END IF;
+
+    -- Recém-nascido: 0 a 28 dias de vida (Neonato)
+    IF v_dias <= 28 THEN
+        RETURN 'recem_nascido';
+    END IF;
+
+    v_anos := DATE_PART('year', AGE(p_eval_date, p_birth_date))::INTEGER;
+
+    -- Criança: 29 dias a 17 anos (< 18 anos)
+    IF v_anos < 18 THEN
+        RETURN 'crianca';
+    END IF;
+
+    -- Adulto: 18 a 59 anos
+    IF v_anos < 60 THEN
+        RETURN 'adulto';
+    END IF;
+
+    -- Idoso: 60 anos ou mais (Estatuto da Pessoa Idosa)
+    RETURN 'idoso';
+END;
+$$;
+
+-- 9.5 Função para rótulo legível da faixa etária
+CREATE OR REPLACE FUNCTION public.cb_rotulo_faixa_etaria(
+    p_birth_date DATE,
+    p_eval_date DATE DEFAULT CURRENT_DATE
+)
+RETURNS TEXT
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+    v_faixa TEXT;
+BEGIN
+    v_faixa := public.cb_classificar_faixa_etaria(p_birth_date, p_eval_date);
+    IF v_faixa = 'recem_nascido' THEN
+        RETURN 'Recém-nascido';
+    ELSIF v_faixa = 'crianca' THEN
+        RETURN 'Criança';
+    ELSIF v_faixa = 'adulto' THEN
+        RETURN 'Adulto';
+    ELSIF v_faixa = 'idoso' THEN
+        RETURN 'Idoso';
+    ELSE
+        RETURN 'Não informada';
+    END IF;
+END;
+$$;
+
+-- 9.6 Colunas de apoio em cb_processos
+ALTER TABLE public.cb_processos ADD COLUMN IF NOT EXISTS paciente_idade_na_avaliacao INTEGER;
+ALTER TABLE public.cb_processos ADD COLUMN IF NOT EXISTS paciente_idade_formatada TEXT;
+ALTER TABLE public.cb_processos ADD COLUMN IF NOT EXISTS paciente_faixa_etaria TEXT;
+ALTER TABLE public.cb_processos ADD COLUMN IF NOT EXISTS paciente_faixa_etaria_label TEXT;
+
+-- 9.7 View de Processos com Idade na Avaliação e Faixa Etária
+CREATE OR REPLACE VIEW public.cb_vw_processos_com_idade AS
+SELECT
+    proc.*,
+    pat.full_name AS paciente_nome,
+    pat.cpf AS paciente_cpf,
+    pat.cns AS paciente_cns,
+    pat.birth_date AS paciente_data_nascimento,
+    pat.gender AS paciente_sexo,
+    public.cb_calcular_idade_anos(pat.birth_date, COALESCE(proc.data_abertura, CURRENT_DATE)) AS idade_na_avaliacao_anos,
+    public.cb_calcular_idade_dias(pat.birth_date, COALESCE(proc.data_abertura, CURRENT_DATE)) AS idade_na_avaliacao_dias,
+    public.cb_calcular_idade_formatada(pat.birth_date, COALESCE(proc.data_abertura, CURRENT_DATE)) AS idade_na_avaliacao_formatada,
+    public.cb_classificar_faixa_etaria(pat.birth_date, COALESCE(proc.data_abertura, CURRENT_DATE)) AS faixa_etaria_avaliacao,
+    public.cb_rotulo_faixa_etaria(pat.birth_date, COALESCE(proc.data_abertura, CURRENT_DATE)) AS faixa_etaria_rotulo
+FROM public.cb_processos proc
+LEFT JOIN public.cb_patients pat ON proc.paciente_id = pat.id;

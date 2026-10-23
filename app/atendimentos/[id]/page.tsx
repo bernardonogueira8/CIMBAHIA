@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback, Suspense } from "react";
+import React, { useState, useMemo, useCallback, useRef, useEffect, Suspense } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -30,14 +30,25 @@ import {
   Scale,
   Trash2,
   ArrowRight,
+  Mail,
+  Phone,
+  Edit3,
+  RotateCcw,
+  Info,
+  Plus,
+  Search,
 } from "lucide-react";
 import { useApp } from "@/lib/context/AppContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
-import { formatDate } from "@/lib/utils";
-import { Processo, ProcessoItem, ProcessoStatus, TipoParecer, isProcessoInFirstStatus } from "@/lib/types";
+import { Input } from "@/components/ui/input";
+import { formatDate, formatDateTime, formatStatusLabel, generateUUID, matchNormalized, normalizeText } from "@/lib/utils";
+import { calculatePatientAgeAtEvaluation } from "@/lib/patient-age";
+import { Processo, ProcessoItem, ProcessoStatus, TipoParecer, isProcessoInFirstStatus, CID } from "@/lib/types";
+import { INITIAL_FARMACOS } from "@/lib/farmacos-data";
+
 
 export interface ComboDecisionHistoryItem {
   id: string;
@@ -46,6 +57,7 @@ export interface ComboDecisionHistoryItem {
   pacienteNome?: string;
   isSamePatient?: boolean;
   data: string;
+  dataConclusao?: string;
   status: "deferido" | "indeferido" | "em_exigencia" | "deferido_parcial";
   farmaceutico: string;
   farmaco: string;
@@ -77,8 +89,6 @@ const CIMBAHIA_COMBO_PRECEDENTS: PrecedentTemplate[] = [
       "Solicitação indeferida por não cumprimento dos critérios de inclusão do PCDT ministerial. Ausência de comprovação de falha terapêutica ou intolerância a pelo menos dois esquemas prévios com MMCDs sintéticos em doses plenas e tempo preconizado em protocolo.",
     em_exigencia:
       "Diligência documental indispensável: 1) Apresentar resultado de PPD/IGRA ou laudo de pneumologia recente (últimos 12 meses); 2) Relatório médico descritivo com cálculo de índice de atividade de doença (DAS28 / CDAI / BASDAI) antes do início da bioterapia.",
-    recomendacoes:
-      "Reavaliação de eficácia e segurança (DAS28 / CDAI e hemograma) a cada 3 a 6 meses. Notificar quaisquer infecções ativas.",
   },
   {
     keywords: ["infliximabe", "remicade"],
@@ -90,8 +100,6 @@ const CIMBAHIA_COMBO_PRECEDENTS: PrecedentTemplate[] = [
       "Solicitação não contemplada: ausência de laudo histopatológico/colonoscopia recente e não esgotamento das etapas terapêuticas prévias com corticosteroides e derivados de 5-ASA/imunomoduladores.",
     em_exigencia:
       "Pendente envio de: laudo histopatológico da biópsia endoscópica recente, TCLE assinado pelo médico e paciente e resultado de teste tuberculínico atualizado.",
-    recomendacoes:
-      "Acompanhamento em centro de infusão com checagem de reações anafiláticas e dosagem de calprotectina fecal para controle de resposta.",
   },
   {
     keywords: ["canabidiol", "cbd", "cannabis"],
@@ -103,8 +111,6 @@ const CIMBAHIA_COMBO_PRECEDENTS: PrecedentTemplate[] = [
       "Indeferimento técnico: Ausência de comprovação de refratariedade aos antiepilépticos padronizados no SUS (Ácido Valproico, Carbamazepina, Clobazam, Lamotrigina, Levetiracetam) ou ausência de relatório neurológico pormenorizado.",
     em_exigencia:
       "Solicita-se complementação documental: 1) Termo de Consentimento Livre e Esclarecido (TCLE) padronizado da SESAB assinado pelo responsável; 2) Relatório neurológico quantificando a frequência mensal de crises convulsivas e reações adversas anteriores.",
-    recomendacoes:
-      "Controle rigoroso de interações medicamentosas via citocromo P450 e retorno trimestral com diário de crises convulsivas.",
   },
   {
     keywords: ["upadacitinibe", "rinvoq"],
@@ -116,8 +122,6 @@ const CIMBAHIA_COMBO_PRECEDENTS: PrecedentTemplate[] = [
       "Indeferido: ausência de comprovação de falha a biológico prévio de 1ª linha previsto em protocolo ou presença de contraindicação absoluta sem detalhamento médico.",
     em_exigencia:
       "Diligência: Enviar dosagem basal de colesterol total e frações, hemograma recente e comprovação de rastreio de tuberculose latente (PPD ou IGRA).",
-    recomendacoes:
-      "Monitorar perfil lipídico em 12 semanas e avaliar risco de eventos tromboembólicos e herpes-zóster.",
   },
   {
     keywords: ["ocrelizumabe", "ocrevus"],
@@ -129,8 +133,6 @@ const CIMBAHIA_COMBO_PRECEDENTS: PrecedentTemplate[] = [
       "Não atende aos critérios do PCDT: ausência de comprovação de falha a alternativas de primeira linha (Glatirâmer ou Betainterferona) e ausência de neuroimagem recente comprovando atividade inflamatória.",
     em_exigencia:
       "Pendente envio de laudo recente de Ressonância Magnética de Encéfalo/Medula com contraste (últimos 6 meses) e dosagem de imunoglobulinas basais (IgG e IgM).",
-    recomendacoes:
-      "Administração em ambiente hospitalar/ambulatorial com pré-medicação anti-histamínica e controle semestral de imunoglobulinas.",
   },
   {
     keywords: ["secuquinumabe", "cosentyx"],
@@ -142,8 +144,6 @@ const CIMBAHIA_COMBO_PRECEDENTS: PrecedentTemplate[] = [
       "Indeferido por não apresentação de índices de gravidade validados (PASI/DLQI) ou ausência de tentativa prévia de tratamentos sistêmicos convencionais da RENAME.",
     em_exigencia:
       "Solicita-se laudo dermatológico com cálculo do escore PASI e DLQI atualizados e resultado do teste tuberculínico (PPD).",
-    recomendacoes:
-      "Avaliar resposta terapêutica na 12ª semana de indução e manter vigilância contra infecções fúngicas mucocutâneas.",
   },
 ];
 
@@ -173,6 +173,16 @@ function DetalhesProcessoContent() {
   const processo = useMemo(() => {
     return processos.find((p) => p.id === processoId) || null;
   }, [processos, processoId]);
+
+  // Idade e ciclo de vida do paciente no exato momento da avaliação
+  const patientAge = useMemo(() => {
+    const evalDate =
+      processo?.parecer?.active_version?.created_at ||
+      processo?.data_abertura ||
+      processo?.created_at ||
+      new Date();
+    return calculatePatientAgeAtEvaluation(processo?.paciente?.birth_date, evalDate);
+  }, [processo]);
 
   // Histórico de processos anteriores do mesmo paciente
   const patientPastProcessos = useMemo(() => {
@@ -237,6 +247,96 @@ function DetalhesProcessoContent() {
   >("todos");
   const [copiedAlertText, setCopiedAlertText] = useState<string | null>(null);
 
+  // Modal de Observação na Triagem
+  const [isObservacaoModalOpen, setIsObservacaoModalOpen] = useState(false);
+  const [observacaoNoteInput, setObservacaoNoteInput] = useState("");
+
+  // Modal de Edição de Contatos do Processo SEI (E-mail e Telefone)
+  const [isEditContactsModalOpen, setIsEditContactsModalOpen] = useState(false);
+  const [editEmailInput, setEditEmailInput] = useState("");
+  const [editTelefoneInput, setEditTelefoneInput] = useState("");
+
+  // Modais de Edição / Adição / Exclusão de Fármacos e CIDs (pelo Farmacêutico)
+  const [isItemModalOpen, setIsItemModalOpen] = useState(false);
+  const [itemModalMode, setItemModalMode] = useState<"add" | "edit">("add");
+  const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
+  const [itemFarmacoInput, setItemFarmacoInput] = useState("");
+  const [isFarmacoDropdownOpen, setIsFarmacoDropdownOpen] = useState(false);
+  const [itemCidInput, setItemCidInput] = useState("");
+  const [isCidDropdownOpen, setIsCidDropdownOpen] = useState(false);
+  const [itemCidNaoInformado, setItemCidNaoInformado] = useState(false);
+  const [itemSelectedCid, setItemSelectedCid] = useState<CID | null>(null);
+  const [itemCidResults, setItemCidResults] = useState<CID[]>([]);
+  const [isLoadingCids, setIsLoadingCids] = useState(false);
+  const [cidSearchError, setCidSearchError] = useState("");
+  const [itemPosology, setItemPosology] = useState("");
+  const [itemMonthlyQuantity, setItemMonthlyQuantity] = useState<string | number>(1);
+  const [itemErrorMessage, setItemErrorMessage] = useState("");
+
+  const [isDeleteItemModalOpen, setIsDeleteItemModalOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<{ item: ProcessoItem; index: number } | null>(null);
+
+  const farmacoDropdownRef = useRef<HTMLDivElement>(null);
+  const cidDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Autocomplete de Fármacos (insensível a acentuação)
+  const filteredFarmacos = useMemo(() => {
+    if (!itemFarmacoInput.trim()) return INITIAL_FARMACOS.slice(0, 15);
+    return INITIAL_FARMACOS.filter(
+      (f) => matchNormalized(f.name, itemFarmacoInput) || matchNormalized(f.component, itemFarmacoInput)
+    ).slice(0, 20);
+  }, [itemFarmacoInput]);
+
+  // Busca debounced de CIDs no catálogo
+  useEffect(() => {
+    if (!isCidDropdownOpen || itemCidNaoInformado) return;
+
+    const abortController = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      setIsLoadingCids(true);
+      setCidSearchError("");
+
+      try {
+        const params = new URLSearchParams({ q: itemCidInput.trim(), page: "1", limit: "15" });
+        const response = await fetch(`/api/cids?${params}`, {
+          signal: abortController.signal,
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.message || "Não foi possível consultar o catálogo de CIDs.");
+        }
+
+        setItemCidResults(payload.cids || []);
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
+        console.error("Erro ao consultar CIDs:", error);
+        setCidSearchError("Falha na busca de CIDs.");
+      } finally {
+        setIsLoadingCids(false);
+      }
+    }, 250);
+
+    return () => {
+      clearTimeout(timeoutId);
+      abortController.abort();
+    };
+  }, [itemCidInput, isCidDropdownOpen, itemCidNaoInformado]);
+
+  // Fechar dropdowns ao clicar fora
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (farmacoDropdownRef.current && !farmacoDropdownRef.current.contains(event.target as Node)) {
+        setIsFarmacoDropdownOpen(false);
+      }
+      if (cidDropdownRef.current && !cidDropdownRef.current.contains(event.target as Node)) {
+        setIsCidDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   if (!processo) {
     return (
       <div className="max-w-4xl mx-auto py-12 text-center space-y-4">
@@ -255,8 +355,11 @@ function DetalhesProcessoContent() {
     );
   }
 
-  // Mapeamento dos 4 status simplificados
-  const getNormalizedStatus = (st: ProcessoStatus): "triagem" | "aguardando_parecer" | "em_analise" | "concluido" => {
+  // Mapeamento dos 5 status do fluxo oficial com Observação
+  const getNormalizedStatus = (
+    st: ProcessoStatus
+  ): "triagem" | "observacao" | "aguardando_parecer" | "em_analise" | "concluido" => {
+    if (st === "observacao" || st === "em_observacao") return "observacao";
     if (st === "triagem" || st === "aguardando_triagem" || st === "em_triagem") return "triagem";
     if (st === "aguardando_parecer") return "aguardando_parecer";
     if (st === "em_analise" || st === "em_analise_farmaceutica" || st === "em_exigencia") {
@@ -266,6 +369,8 @@ function DetalhesProcessoContent() {
   };
 
   const currentStage = getNormalizedStatus(processo.status);
+  const canManageItems =
+    isFarmaceutico || currentStage === "triagem" || currentStage === "observacao";
 
   // Ação 1: Assumir Parecer
   const handleAssumirParecer = async () => {
@@ -292,10 +397,16 @@ function DetalhesProcessoContent() {
     if (!processo) return;
     setIsSubmitting(true);
     try {
+      const isFromObservacao = processo.status === "em_observacao" || processo.status === "observacao";
+      await updateProcesso(processo.id, {
+        triagem_documents_ok: true,
+      });
       await transicionarProcessoStatus(
         processo.id,
         "aguardando_parecer",
-        `Triagem documental concluída por ${currentUser?.full_name || "Usuário"}. Encaminhado para a fila de parecer.`
+        isFromObservacao
+          ? `Observação liberada e triagem documental concluída por ${currentUser?.full_name || "Usuário"}. Encaminhado para a fila de parecer.`
+          : `Triagem documental concluída por ${currentUser?.full_name || "Usuário"}. Encaminhado para a fila de parecer.`
       );
     } catch (err) {
       console.error(err);
@@ -304,6 +415,226 @@ function DetalhesProcessoContent() {
       setIsSubmitting(false);
     }
   };
+
+  // Ação: Abrir e Salvar Modal de Observação na Triagem
+  const handleOpenObservacaoModal = () => {
+    setObservacaoNoteInput(processo.triagem_notes || processo.observations || "");
+    setIsObservacaoModalOpen(true);
+  };
+
+  const handleSalvarObservacao = async () => {
+    if (!processo) return;
+    setIsSubmitting(true);
+    try {
+      const note = observacaoNoteInput.trim() || "Processo retido na etapa de observação da triagem.";
+      await updateProcesso(processo.id, {
+        triagem_notes: note,
+        observations: note,
+      });
+      if (processo.status !== "em_observacao" && processo.status !== "observacao") {
+        await transicionarProcessoStatus(
+          processo.id,
+          "em_observacao",
+          `Processo colocado na etapa de observação por ${currentUser?.full_name || "Usuário"}: ${note}`
+        );
+      }
+      setIsObservacaoModalOpen(false);
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao salvar observação da triagem.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Ação: Retornar para Triagem Inicial
+  const handleRetornarTriagemInicial = async () => {
+    if (!processo) return;
+    setIsSubmitting(true);
+    try {
+      await transicionarProcessoStatus(
+        processo.id,
+        "triagem",
+        `Processo retornado para triagem inicial por ${currentUser?.full_name || "Usuário"}.`
+      );
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao retornar para a triagem inicial.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Ação: Editar Contatos do Processo SEI
+  const handleOpenEditContacts = () => {
+    setEditEmailInput(processo.email || processo.contato_email || "");
+    setEditTelefoneInput(processo.telefone || processo.contato_telefone || "");
+    setIsEditContactsModalOpen(true);
+  };
+
+  const handleSaveContacts = async () => {
+    if (!processo) return;
+    setIsSubmitting(true);
+    try {
+      await updateProcesso(processo.id, {
+        email: editEmailInput.trim() || null,
+        telefone: editTelefoneInput.trim() || null,
+        contato_email: editEmailInput.trim() || null,
+        contato_telefone: editTelefoneInput.trim() || null,
+      });
+      setIsEditContactsModalOpen(false);
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao atualizar contatos do processo.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Ações de Gestão de Fármacos / CIDs pelo Farmacêutico (Adicionar, Editar e Remover)
+  const handleOpenAddItemModal = () => {
+    setItemModalMode("add");
+    setEditingItemIndex(null);
+    setItemFarmacoInput("");
+    setIsFarmacoDropdownOpen(false);
+    setItemCidInput("");
+    setIsCidDropdownOpen(false);
+    setItemCidNaoInformado(false);
+    setItemSelectedCid(null);
+    setItemPosology("");
+    setItemMonthlyQuantity(1);
+    setItemErrorMessage("");
+    setIsItemModalOpen(true);
+  };
+
+  const handleOpenEditItemModal = (item: ProcessoItem, index: number) => {
+    setItemModalMode("edit");
+    setEditingItemIndex(index);
+    setItemFarmacoInput(item.farmaco_substancia || item.medication_name || "");
+    setIsFarmacoDropdownOpen(false);
+    setItemCidInput(
+      item.cid_nao_informado
+        ? ""
+        : item.cid_description
+          ? `${item.cid_code} - ${item.cid_description}`
+          : item.cid_code || ""
+    );
+    setIsCidDropdownOpen(false);
+    setItemCidNaoInformado(!!item.cid_nao_informado);
+    setItemSelectedCid(null);
+    setItemPosology(item.posology || "");
+    setItemMonthlyQuantity(item.monthly_quantity ?? 1);
+    setItemErrorMessage("");
+    setIsItemModalOpen(true);
+  };
+
+  const handleSaveItemModal = async () => {
+    if (!processo) return;
+    const farmacoName = itemFarmacoInput.trim();
+    if (!farmacoName) {
+      setItemErrorMessage("Por favor, informe ou selecione o nome do Fármaco / Substância ativa.");
+      return;
+    }
+
+    if (!itemCidNaoInformado && !itemCidInput.trim() && !itemSelectedCid) {
+      setItemErrorMessage("Por favor, selecione o diagnóstico CID-10 ou marque 'CID Não Informado / Investigação'.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      let finalCidCode = "N/I";
+      let finalCidDesc = "Investigação diagnóstica";
+      let finalCidId: string | undefined = undefined;
+
+      if (!itemCidNaoInformado) {
+        if (itemSelectedCid) {
+          finalCidCode = itemSelectedCid.code;
+          finalCidDesc = itemSelectedCid.description;
+          finalCidId = itemSelectedCid.id;
+        } else {
+          const parts = itemCidInput.split("-");
+          finalCidCode = parts[0]?.trim() || "N/I";
+          finalCidDesc = parts.slice(1).join("-").trim() || "Diagnóstico Clínico";
+        }
+      }
+
+      const qMonthly = Number(itemMonthlyQuantity);
+
+      if (itemModalMode === "add") {
+        const newItem: ProcessoItem = {
+          id: generateUUID(),
+          processo_id: processo.id,
+          farmaco_substancia: farmacoName,
+          medication_name: farmacoName,
+          medication_type: "farmaco",
+          cid_id: finalCidId,
+          cid_code: finalCidCode,
+          cid_description: finalCidDesc,
+          cid_nao_informado: itemCidNaoInformado,
+          posology: itemPosology.trim() || null,
+          monthly_quantity: !isNaN(qMonthly) && qMonthly > 0 ? qMonthly : 1,
+          status: "pendente",
+          justification: null,
+        };
+
+        const updatedItems = [...itemsState, newItem];
+        setItemsState(updatedItems);
+        await updateProcesso(processo.id, { items: updatedItems });
+        setCopiedAlertText(`Fármaco "${farmacoName}" acrescentado com sucesso à demanda!`);
+      } else if (itemModalMode === "edit" && editingItemIndex !== null) {
+        const currentItem = itemsState[editingItemIndex];
+        const updatedItem: ProcessoItem = {
+          ...currentItem,
+          farmaco_substancia: farmacoName,
+          medication_name: farmacoName,
+          cid_id: finalCidId ?? (itemCidNaoInformado ? undefined : currentItem.cid_id),
+          cid_code: finalCidCode,
+          cid_description: finalCidDesc,
+          cid_nao_informado: itemCidNaoInformado,
+          posology: itemPosology.trim() || null,
+          monthly_quantity: !isNaN(qMonthly) && qMonthly > 0 ? qMonthly : 1,
+        };
+
+        const updatedItems = itemsState.map((it, idx) => (idx === editingItemIndex ? updatedItem : it));
+        setItemsState(updatedItems);
+        await updateProcesso(processo.id, { items: updatedItems });
+        setCopiedAlertText(`Fármaco "${farmacoName}" atualizado com sucesso!`);
+      }
+
+      setIsItemModalOpen(false);
+    } catch (err: any) {
+      console.error("Erro ao salvar fármaco:", err);
+      setItemErrorMessage(err?.message || "Ocorreu um erro ao salvar o fármaco.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenDeleteItemModal = (item: ProcessoItem, index: number) => {
+    setItemToDelete({ item, index });
+    setIsDeleteItemModalOpen(true);
+  };
+
+  const handleConfirmDeleteItem = async () => {
+    if (!processo || !itemToDelete) return;
+    setIsSubmitting(true);
+    try {
+      const removedName = itemToDelete.item.farmaco_substancia || itemToDelete.item.medication_name;
+      const updatedItems = itemsState.filter((_, idx) => idx !== itemToDelete.index);
+      setItemsState(updatedItems);
+      await updateProcesso(processo.id, { items: updatedItems });
+      setIsDeleteItemModalOpen(false);
+      setItemToDelete(null);
+      setCopiedAlertText(`Fármaco "${removedName}" removido com sucesso.`);
+    } catch (err: any) {
+      console.error("Erro ao remover fármaco:", err);
+      alert("Erro ao remover fármaco: " + (err?.message || "Erro desconhecido"));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
 
   // Ação: Confirmar Exclusão do Processo
   const handleConfirmDeleteProcesso = async () => {
@@ -349,21 +680,33 @@ function DetalhesProcessoContent() {
     }
   };
 
-  // Resgate Enriquecido de Decisões e Respostas Anteriores para o combo (Fármaco + CID)
+  // Resgate Dinâmico e Enriquecido de Decisões e Respostas Anteriores do Combo (Fármaco + CID)
   const getComboDecisionsHistory = useCallback(
     (farmaco: string, cidCode: string, pacienteId?: string): ComboDecisionHistoryItem[] => {
-      const decisions: ComboDecisionHistoryItem[] = [];
-      const cleanFarmaco = (farmaco || "").toLowerCase().trim();
-      const cleanCid = (cidCode || "").toLowerCase().trim();
+      const realDecisions: ComboDecisionHistoryItem[] = [];
+      const cleanFarmaco = normalizeText(farmaco);
+      const cleanCid = normalizeText(cidCode);
       const cleanCidPrefix = cleanCid.split(".")[0];
       const farmacoKeyword = cleanFarmaco.split(" ")[0].replace(/[^a-z0-9]/gi, "");
 
-      // 1. Processos reais cadastrados no sistema (outros processos)
+      // 1. Pesquisa nos processos do repositório de pareceres oficiais
       processos.forEach((p) => {
+        // Ignora o próprio processo que está sendo avaliado agora
         if (p.id === processo.id) return;
-        p.items?.forEach((it) => {
-          const itemFarmaco = (it.farmaco_substancia || it.medication_name || "").toLowerCase().trim();
-          const itemCid = (it.cid_code || "").toLowerCase().trim();
+
+        const parecerVersion = p.parecer?.active_version;
+        const isProcessoConcluido =
+          p.status === "concluido" ||
+          p.status === "concluido_deferido" ||
+          p.status === "concluido_indeferido" ||
+          p.status === "concluido_parcial" ||
+          Boolean(parecerVersion);
+
+        if (!p.items || p.items.length === 0) return;
+
+        p.items.forEach((it) => {
+          const itemFarmaco = normalizeText(it.farmaco_substancia || it.medication_name || "");
+          const itemCid = normalizeText(it.cid_code || "");
           const itemCidPrefix = itemCid.split(".")[0];
 
           // Critério de correspondência de fármaco
@@ -383,169 +726,200 @@ function DetalhesProcessoContent() {
               cleanCid.startsWith(itemCidPrefix) ||
               itemCid.startsWith(cleanCidPrefix));
 
-          if (matchesFarmaco && matchesCid) {
-            const isSamePat = Boolean(
-              pacienteId &&
-              (p.paciente_id === pacienteId ||
-                (processo.paciente?.cpf && p.paciente?.cpf === processo.paciente.cpf))
+          if (!matchesFarmaco || !matchesCid) return;
+
+          // Extração da fundamentação técnica e resposta específica que foi dita no passado para este fármaco + CID
+          let specificJustification = (it.justification || "").trim();
+
+          // Se item.justification estiver vazio, tenta extrair a seção específica do item dentro do parecer consolidado
+          if (!specificJustification && parecerVersion?.technical_justification) {
+            const fullText = parecerVersion.technical_justification;
+            const itemSubstance = it.farmaco_substancia || it.medication_name || "";
+            const farmacoEscaped = itemSubstance.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const regex = new RegExp(
+              `(?:Item\\s*\\d*[:\\s]*${farmacoEscaped}[\\s\\S]*?Fundamenta[çc][aã]o\\s*T[eé]cnica[:\\s]*)([\\s\\S]*?)(?=(?:\\nItem\\s*\\d*|Diante do exame|Certos da|Atenciosamente|$))`,
+              "i"
             );
-
-            const just =
-              it.justification ||
-              p.parecer?.active_version?.technical_justification ||
-              p.parecer?.active_version?.clinical_foundation ||
-              "";
-
-            const regEffect = p.parecer?.active_version?.regulatory_effect as string | undefined;
-            const rawStatus: "deferido" | "indeferido" | "em_exigencia" | "deferido_parcial" =
-              it.status === "deferido" ||
-                it.status === "indeferido" ||
-                it.status === "em_exigencia" ||
-                it.status === "deferido_parcial"
-                ? it.status
-                : regEffect === "deferido"
-                  ? "deferido"
-                  : regEffect === "indeferido"
-                    ? "indeferido"
-                    : regEffect === "exigencia" || regEffect === "em_exigencia"
-                      ? "em_exigencia"
-                      : regEffect === "deferido_parcial"
-                        ? "deferido_parcial"
-                        : p.status.includes("deferido")
-                          ? "deferido"
-                          : p.status.includes("indeferido")
-                            ? "indeferido"
-                            : p.status === "em_exigencia"
-                              ? "em_exigencia"
-                              : "deferido";
-
-            decisions.push({
-              id: `proc-${p.id}-${it.id}`,
-              sourceType: "processo_anterior",
-              processoSei: p.numero_sei,
-              pacienteNome: p.paciente?.full_name || "Paciente do SUS",
-              isSamePatient: isSamePat,
-              data: p.parecer?.active_version?.created_at || p.data_abertura,
-              status: rawStatus,
-              farmaceutico:
-                p.parecer?.active_version?.pharmacist_name ||
-                p.assigned_pharmacist?.full_name ||
-                it.evaluated_by ||
-                "Farmacêutico(a) Parecerista CimBahia",
-              farmaco: it.farmaco_substancia || it.medication_name,
-              cidCode: it.cid_code,
-              cidDescricao: it.cid_description,
-              fundamentacao:
-                just ||
-                `Decisão registrada em processo prévio para ${it.medication_name} no diagnóstico ${it.cid_code}. Critérios de avaliação técnica aplicados.`,
-              recomendacoes: p.parecer?.active_version?.recommendations || undefined,
-            });
+            const match = fullText.match(regex);
+            if (match && match[1] && match[1].trim()) {
+              specificJustification = match[1].trim();
+            }
           }
+
+          // Se ainda não encontrado, usa a fundamentação do parecer consolidado
+          if (!specificJustification && parecerVersion?.technical_justification) {
+            specificJustification = (parecerVersion.technical_justification || "").trim();
+          }
+
+          // Só consideramos como "o que foi dito no passado" se houver uma resposta/fundamentação efetiva
+          if (!specificJustification || specificJustification.length < 5) return;
+
+          // Data de conclusão: prioriza a data de emissão/assinatura do parecer técnico, avaliado_em ou data de conclusão no histórico
+          const dataConclusao =
+            parecerVersion?.created_at ||
+            it.evaluated_at ||
+            p.historico?.find((h) => h.to_status?.startsWith("concluido"))?.timestamp ||
+            (isProcessoConcluido ? p.updated_at : null) ||
+            p.data_abertura;
+
+          const isSamePat = Boolean(
+            pacienteId &&
+            (p.paciente_id === pacienteId ||
+              (processo.paciente?.cpf && p.paciente?.cpf === processo.paciente.cpf))
+          );
+
+          const regEffect = parecerVersion?.regulatory_effect as string | undefined;
+          const rawStatus: "deferido" | "indeferido" | "em_exigencia" | "deferido_parcial" =
+            it.status === "deferido" ||
+            it.status === "indeferido" ||
+            it.status === "em_exigencia" ||
+            it.status === "deferido_parcial"
+              ? it.status
+              : regEffect === "deferido"
+              ? "deferido"
+              : regEffect === "indeferido"
+              ? "indeferido"
+              : regEffect === "exigencia" || regEffect === "em_exigencia"
+              ? "em_exigencia"
+              : regEffect === "deferido_parcial"
+              ? "deferido_parcial"
+              : p.status.includes("deferido")
+              ? "deferido"
+              : p.status.includes("indeferido")
+              ? "indeferido"
+              : p.status === "em_exigencia"
+              ? "em_exigencia"
+              : "deferido";
+
+          realDecisions.push({
+            id: `proc-${p.id}-${it.id}`,
+            sourceType: "processo_anterior",
+            processoSei: p.numero_sei,
+            pacienteNome: p.paciente?.full_name || "Paciente do SUS",
+            isSamePatient: isSamePat,
+            data: dataConclusao,
+            dataConclusao: dataConclusao,
+            status: rawStatus,
+            farmaceutico:
+              parecerVersion?.pharmacist_name ||
+              p.assigned_pharmacist?.full_name ||
+              it.evaluated_by ||
+              "Farmacêutico(a) Parecerista CimBahia",
+            farmaco: it.farmaco_substancia || it.medication_name,
+            cidCode: it.cid_code,
+            cidDescricao: it.cid_description,
+            fundamentacao: specificJustification,
+            pcdtReferencia:
+              parecerVersion?.tipo_parecer_title || "Parecer Técnico Concluído",
+          });
         });
       });
 
-      // 2. Precedentes Oficiais Padronizados CimBahia / PCDT SESAB
+      // 2. Ordena as decisões reais ESTRITAMENTE pela DATA DE CONCLUSÃO mais recente (decrescente)
+      realDecisions.sort((a, b) => {
+        const timeA = new Date(a.dataConclusao || a.data).getTime();
+        const timeB = new Date(b.dataConclusao || b.data).getTime();
+        return timeB - timeA;
+      });
+
+      // Se houver processos reais anteriores suficientes, eles encabeçam a lista
+      // Se não houver, adiciona precedentes institucionais de apoio
+      const staticDecisions: ComboDecisionHistoryItem[] = [];
       let matchedPrecedent: PrecedentTemplate | undefined = CIMBAHIA_COMBO_PRECEDENTS.find(
         (prec) =>
-          prec.keywords.some((kw) => cleanFarmaco.includes(kw)) &&
-          (prec.cidPrefixes.some((pfx) => cleanCid.startsWith(pfx)) || cleanCid.length === 0)
+          prec.keywords.some((kw) => cleanFarmaco.includes(normalizeText(kw))) &&
+          (prec.cidPrefixes.some((pfx) => cleanCid.startsWith(normalizeText(pfx))) || cleanCid.length === 0)
       );
 
       if (!matchedPrecedent) {
         matchedPrecedent = CIMBAHIA_COMBO_PRECEDENTS.find((prec) =>
-          prec.keywords.some((kw) => cleanFarmaco.includes(kw))
+          prec.keywords.some((kw) => cleanFarmaco.includes(normalizeText(kw)))
         );
       }
 
       if (matchedPrecedent) {
-        decisions.push(
+        staticDecisions.push(
           {
             id: `prec-def-${farmacoKeyword}-${cleanCidPrefix}`,
             sourceType: "precedente_cimbahia",
             data: "2026-01-15",
+            dataConclusao: "2026-01-15T00:00:00.000Z",
             status: "deferido",
             farmaceutico: "Câmara Técnica CimBahia / Protocolos SESAB",
             farmaco: farmaco,
             cidCode: cidCode,
             pcdtReferencia: matchedPrecedent.pcdt,
             fundamentacao: matchedPrecedent.deferido,
-            recomendacoes: matchedPrecedent.recomendacoes,
           },
           {
             id: `prec-indef-${farmacoKeyword}-${cleanCidPrefix}`,
             sourceType: "precedente_cimbahia",
             data: "2026-01-15",
+            dataConclusao: "2026-01-15T00:00:00.000Z",
             status: "indeferido",
             farmaceutico: "Câmara Técnica CimBahia / Protocolos SESAB",
             farmaco: farmaco,
             cidCode: cidCode,
             pcdtReferencia: matchedPrecedent.pcdt,
             fundamentacao: matchedPrecedent.indeferido,
-            recomendacoes: "Orientar o requerente quanto a alternativas terapêuticas padronizadas no SUS.",
           },
           {
             id: `prec-exig-${farmacoKeyword}-${cleanCidPrefix}`,
             sourceType: "precedente_cimbahia",
             data: "2026-01-15",
+            dataConclusao: "2026-01-15T00:00:00.000Z",
             status: "em_exigencia",
             farmaceutico: "Câmara Técnica CimBahia / Protocolos SESAB",
             farmaco: farmaco,
             cidCode: cidCode,
             pcdtReferencia: matchedPrecedent.pcdt,
             fundamentacao: matchedPrecedent.em_exigencia,
-            recomendacoes: "Fixar prazo de 30 dias para atendimento das pendências documentais.",
           }
         );
-      } else {
-        // Fallback institucional padronizado para qualquer outro combo
-        decisions.push(
+      } else if (realDecisions.length === 0) {
+        // Fallback institucional padronizado apenas se não houver NENHUM parecer no banco
+        staticDecisions.push(
           {
             id: `prec-gen-def-${farmacoKeyword || "farmaco"}-${cleanCidPrefix || "cid"}`,
             sourceType: "precedente_cimbahia",
             data: "2026-01-10",
+            dataConclusao: "2026-01-10T00:00:00.000Z",
             status: "deferido",
             farmaceutico: "Comissão de Farmácia e Terapêutica • CimBahia",
             farmaco: farmaco,
             cidCode: cidCode,
             pcdtReferencia: "Diretrizes Clínicas e PCDT do Ministério da Saúde / SESAB",
             fundamentacao: `Solicitação atende aos critérios técnico-regulatórios do PCDT da patologia indicada e das normas de dispensação do CEAF/SUS. Relatório médico circunstanciado comprova o diagnóstico, refratariedade aos tratamentos prévios e exames de segurança atualizados. Deferimento favorável com monitoramento farmacoterapêutico.`,
-            recomendacoes: "Dispensação programada com reavaliação periódica a cada 3 a 6 meses.",
           },
           {
             id: `prec-gen-indef-${farmacoKeyword || "farmaco"}-${cleanCidPrefix || "cid"}`,
             sourceType: "precedente_cimbahia",
             data: "2026-01-10",
+            dataConclusao: "2026-01-10T00:00:00.000Z",
             status: "indeferido",
             farmaceutico: "Comissão de Farmácia e Terapêutica • CimBahia",
             farmaco: farmaco,
             cidCode: cidCode,
             pcdtReferencia: "Diretrizes Clínicas e PCDT do Ministério da Saúde / SESAB",
             fundamentacao: `Solicitação indeferida por não cumprimento dos critérios de elegibilidade do protocolo clínico ministerial. Existem alternativas terapêuticas padronizadas de primeira linha no Componente Básico / Especializado da Assistência Farmacêutica não esgotadas, sem comprovação documental de falha ou contraindicação médica.`,
-            recomendacoes: "Notificar polo de atendimento municipal para avaliar alternativas na RENAME.",
           },
           {
             id: `prec-gen-exig-${farmacoKeyword || "farmaco"}-${cleanCidPrefix || "cid"}`,
             sourceType: "precedente_cimbahia",
             data: "2026-01-10",
+            dataConclusao: "2026-01-10T00:00:00.000Z",
             status: "em_exigencia",
             farmaceutico: "Comissão de Farmácia e Terapêutica • CimBahia",
             farmaco: farmaco,
             cidCode: cidCode,
             pcdtReferencia: "Diretrizes Clínicas e PCDT do Ministério da Saúde / SESAB",
             fundamentacao: `Diligência técnica: O processo requer complementação documental para prosseguimento da análise. Solicita-se: 1) Relatório descritivo com histórico detalhado dos tratamentos anteriores e posologias; 2) Exames complementares comprobatórios do diagnóstico e segurança nos últimos 12 meses; 3) Laudo de Solicitação de Medicamento (LME) preenchido e assinado.`,
-            recomendacoes: "Conceder prazo regulamentar para envio dos documentos pendentes.",
           }
         );
       }
 
-      // Ordenação: 1º Deste mesmo paciente, 2º Processos anteriores reais, 3º Precedentes CimBahia
-      return decisions.sort((a, b) => {
-        if (a.isSamePatient && !b.isSamePatient) return -1;
-        if (!a.isSamePatient && b.isSamePatient) return 1;
-        if (a.sourceType === "processo_anterior" && b.sourceType !== "processo_anterior") return -1;
-        if (a.sourceType !== "processo_anterior" && b.sourceType === "processo_anterior") return 1;
-        return 0;
-      });
+      // Retorna primeiro as respostas reais anteriores ordenadas por data de conclusão mais recente
+      return [...realDecisions, ...staticDecisions];
     },
     [processos, processo]
   );
@@ -686,6 +1060,9 @@ function DetalhesProcessoContent() {
 
     setIsSubmitting(true);
     try {
+      // Garante persistência de todas as fundamentações e decisões individuais por combo (fármaco + CID)
+      await updateProcesso(processo.id, { items: itemsState });
+
       await emitirParecerProcesso(processo.id, {
         tipo_parecer_id: tp.id,
         tipo_parecer_title: tp.title,
@@ -774,7 +1151,9 @@ function DetalhesProcessoContent() {
                     ? "bg-amber-600 text-white"
                     : currentStage === "aguardando_parecer"
                       ? "bg-blue-600 text-white"
-                      : "bg-slate-600 text-white"
+                      : currentStage === "observacao"
+                        ? "bg-amber-500 text-white font-semibold"
+                        : "bg-slate-600 text-white"
                   }`}
               >
                 {currentStage === "concluido"
@@ -783,7 +1162,9 @@ function DetalhesProcessoContent() {
                     ? "Em Análise"
                     : currentStage === "aguardando_parecer"
                       ? "Aguardando Parecer"
-                      : "Criar Processo (Triagem)"}
+                      : currentStage === "observacao"
+                        ? "Em Observação (Triagem)"
+                        : "Criar Processo (Triagem)"}
               </Badge>
               {processo.priority === "urgente" && (
                 <Badge variant="danger" className="text-[10px]">
@@ -804,7 +1185,7 @@ function DetalhesProcessoContent() {
         </div>
 
         {/* Botão de Histórico do Paciente e Impressão */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {patientPastProcessos.length > 0 && (
             <Button
               type="button"
@@ -847,64 +1228,134 @@ function DetalhesProcessoContent() {
               Excluir Processo
             </Button>
           )}
+
+          {/* Gatilho Rápido do Header conforme a Etapa do Fluxo */}
+          {currentStage === "triagem" && (
+            <Button
+              type="button"
+              onClick={handleConcluirTriagem}
+              disabled={isSubmitting}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 shadow"
+            >
+              <ArrowRight className="h-3.5 w-3.5" />
+              {isSubmitting ? "Atualizando..." : "Concluir Triagem"}
+            </Button>
+          )}
+
+          {currentStage === "observacao" && (
+            <Button
+              type="button"
+              onClick={handleConcluirTriagem}
+              disabled={isSubmitting}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 shadow"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {isSubmitting ? "Atualizando..." : "Liberar e Enviar"}
+            </Button>
+          )}
+
+          {currentStage === "aguardando_parecer" && isFarmaceutico && (
+            <Button
+              type="button"
+              onClick={handleAssumirParecer}
+              disabled={isSubmitting}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1.5 shadow"
+            >
+              <UserCheck className="h-3.5 w-3.5" />
+              {isSubmitting ? "Assumindo..." : "Assumir Parecer"}
+            </Button>
+          )}
+
+          {currentStage === "em_analise" && (
+            <Button
+              type="button"
+              onClick={() => {
+                document.getElementById("secao-parecer-consolidado")?.scrollIntoView({ behavior: "smooth" });
+              }}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 shadow"
+            >
+              <Send className="h-3.5 w-3.5" />
+              Concluir Parecer
+            </Button>
+          )}
         </div>
       </div>
 
       {/* ========================================================================= */}
-      {/* LINHA DO TEMPO SIMPLIFICADA (4 ETAPAS) */}
+      {/* LINHA DO TEMPO CANÔNICA DE 4 ETAPAS */}
       {/* ========================================================================= */}
       <Card className="bg-slate-50/50 border-slate-200">
         <CardContent className="p-4">
-          <div className="grid grid-cols-4 gap-2 text-center text-xs">
-            {/* 1. Criar Processo (Triagem) */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+            {/* 1. Criar Processo / Triagem (Administrativo) */}
             <div
-              className={`p-2.5 rounded-lg border font-medium ${currentStage === "triagem"
-                ? "bg-blue-50 border-blue-300 text-blue-900 ring-2 ring-blue-500/20"
-                : "bg-white border-slate-200 text-slate-700"
-                }`}
+              className={`p-2.5 rounded-lg border font-medium ${
+                currentStage === "observacao"
+                  ? "bg-amber-50 border-amber-400 text-amber-950 ring-2 ring-amber-500/20 shadow-sm"
+                  : currentStage === "triagem"
+                  ? "bg-blue-50 border-blue-400 text-blue-900 ring-2 ring-blue-500/20 shadow-sm"
+                  : "bg-white border-slate-200 text-slate-700"
+              }`}
             >
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">
-                Etapa 1
+              <div className="flex items-center justify-between text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">
+                <span>Etapa 1</span>
+                {currentStage === "observacao" ? (
+                  <span className="text-[9px] bg-amber-200 text-amber-900 px-1 py-0.2 rounded font-bold">Observação</span>
+                ) : (
+                  <span>Administrativo</span>
+                )}
               </div>
               <div className="flex items-center justify-center gap-1.5 font-semibold">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                <span>Criar Processo (Triagem)</span>
+                {currentStage === "triagem" ? (
+                  <Clock className="h-3.5 w-3.5 text-blue-600 animate-pulse" />
+                ) : currentStage === "observacao" ? (
+                  <Clock className="h-3.5 w-3.5 text-amber-600 animate-pulse" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                )}
+                <span>1. Triagem</span>
               </div>
             </div>
 
-            {/* 2. Aguardando Parecer */}
+            {/* 2. Aguardando Parecer (Fila Técnica) */}
             <div
-              className={`p-2.5 rounded-lg border font-medium ${currentStage === "aguardando_parecer"
-                ? "bg-blue-50 border-blue-400 text-blue-900 ring-2 ring-blue-500/20 shadow-sm"
-                : currentStage === "em_analise" || currentStage === "concluido"
+              className={`p-2.5 rounded-lg border font-medium ${
+                currentStage === "aguardando_parecer"
+                  ? "bg-blue-50 border-blue-400 text-blue-900 ring-2 ring-blue-500/20 shadow-sm"
+                  : currentStage === "em_analise" || currentStage === "concluido"
                   ? "bg-white border-slate-200 text-slate-700"
                   : "bg-slate-100 border-slate-200 text-slate-400"
-                }`}
+              }`}
             >
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">
-                Etapa 2
+              <div className="flex items-center justify-between text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">
+                <span>Etapa 2</span>
+                <span>Fila</span>
               </div>
               <div className="flex items-center justify-center gap-1.5 font-semibold">
                 {currentStage === "em_analise" || currentStage === "concluido" ? (
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                ) : currentStage === "aguardando_parecer" ? (
+                  <Clock className="h-3.5 w-3.5 text-blue-600 animate-pulse" />
                 ) : (
-                  <Clock className="h-3.5 w-3.5 text-blue-600" />
+                  <div className="h-3.5 w-3.5 rounded-full border border-slate-300" />
                 )}
-                <span>Aguardando Parecer</span>
+                <span>2. Aguardando Parecer</span>
               </div>
             </div>
 
-            {/* 3. Em Análise */}
+            {/* 3. Em Análise (Avaliação Farmacêutica) */}
             <div
-              className={`p-2.5 rounded-lg border font-medium ${currentStage === "em_analise"
-                ? "bg-amber-50 border-amber-400 text-amber-900 ring-2 ring-amber-500/20 shadow-sm"
-                : currentStage === "concluido"
+              className={`p-2.5 rounded-lg border font-medium ${
+                currentStage === "em_analise"
+                  ? "bg-amber-50 border-amber-400 text-amber-900 ring-2 ring-amber-500/20 shadow-sm"
+                  : currentStage === "concluido"
                   ? "bg-white border-slate-200 text-slate-700"
                   : "bg-slate-100 border-slate-200 text-slate-400"
-                }`}
+              }`}
             >
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">
-                Etapa 3
+              <div className="flex items-center justify-between text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">
+                <span>Etapa 3</span>
+                <span>Farmacêutico</span>
               </div>
               <div className="flex items-center justify-center gap-1.5 font-semibold">
                 {currentStage === "concluido" ? (
@@ -914,19 +1365,21 @@ function DetalhesProcessoContent() {
                 ) : (
                   <div className="h-3.5 w-3.5 rounded-full border border-slate-300" />
                 )}
-                <span>Em Análise</span>
+                <span>3. Em Análise</span>
               </div>
             </div>
 
-            {/* 4. Concluído */}
+            {/* 4. Concluído (Parecer Emitido) */}
             <div
-              className={`p-2.5 rounded-lg border font-medium ${currentStage === "concluido"
-                ? "bg-emerald-50 border-emerald-400 text-emerald-900 ring-2 ring-emerald-500/20 shadow-sm"
-                : "bg-slate-100 border-slate-200 text-slate-400"
-                }`}
+              className={`p-2.5 rounded-lg border font-medium ${
+                currentStage === "concluido"
+                  ? "bg-emerald-50 border-emerald-400 text-emerald-900 ring-2 ring-emerald-500/20 shadow-sm"
+                  : "bg-slate-100 border-slate-200 text-slate-400"
+              }`}
             >
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">
-                Etapa 4
+              <div className="flex items-center justify-between text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">
+                <span>Etapa 4</span>
+                <span>Finalizado</span>
               </div>
               <div className="flex items-center justify-center gap-1.5 font-semibold">
                 {currentStage === "concluido" ? (
@@ -934,7 +1387,7 @@ function DetalhesProcessoContent() {
                 ) : (
                   <div className="h-3.5 w-3.5 rounded-full border border-slate-300" />
                 )}
-                <span>Concluído</span>
+                <span>4. Concluído</span>
               </div>
             </div>
           </div>
@@ -955,12 +1408,12 @@ function DetalhesProcessoContent() {
                 Processo em Triagem Inicial
               </h3>
               <p className="text-xs text-slate-600">
-                Processo autuado no SEI. Conclua a conferência documental para encaminhá-lo à fila dos farmacêuticos pareceristas.
+                Processo salvo na triagem documental. Todos os dados (SEI, contatos, paciente, fármacos e CIDs) permanecem disponíveis para consulta e edição. Conclua a conferência para disponibilizar aos pareceristas.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
               onClick={handleConcluirTriagem}
@@ -971,18 +1424,130 @@ function DetalhesProcessoContent() {
               {isSubmitting ? "Atualizando..." : "Concluir Triagem → Enviar para Parecer"}
             </Button>
 
-            {isFarmaceutico && (
+            <Button
+              type="button"
+              onClick={handleOpenObservacaoModal}
+              disabled={isSubmitting}
+              variant="outline"
+              className="border-amber-400 text-amber-900 hover:bg-amber-50 text-xs px-3 py-2 flex items-center gap-1.5 font-medium shadow-sm"
+            >
+              <Clock className="h-4 w-4 text-amber-600" />
+              Colocar em Observação
+            </Button>
+
+            {canManageItems && (
               <Button
                 type="button"
-                onClick={handleAssumirParecer}
+                onClick={handleOpenAddItemModal}
                 disabled={isSubmitting}
                 variant="outline"
-                className="border-blue-300 text-blue-700 hover:bg-blue-50 text-xs px-3 py-2 flex items-center gap-1.5"
+                className="border-emerald-300 text-emerald-800 hover:bg-emerald-50 text-xs px-3 py-2 flex items-center gap-1.5 font-medium shadow-xs"
+                title="Editar, remover ou acrescentar fármacos da triagem"
               >
-                <UserCheck className="h-4 w-4" />
-                Assumir Direto
+                <Pill className="h-4 w-4 text-emerald-600" />
+                Ajustar Fármacos
               </Button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* BANNER PARA PROCESSO EM OBSERVAÇÃO (SE OBSERVAÇÃO) */}
+      {/* ========================================================================= */}
+      {currentStage === "observacao" && (
+        <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 rounded-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm animate-in fade-in">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 bg-amber-600 text-white rounded-lg shadow-sm">
+              <Clock className="h-5 w-5 animate-pulse" />
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-bold text-amber-950">
+                  Processo em Etapa de Observação (Triagem Documental)
+                </h3>
+                <Badge variant="outline" className="text-[10px] bg-amber-100 text-amber-900 border-amber-400 font-bold uppercase tracking-wider">
+                  Observação Ativa
+                </Badge>
+              </div>
+              <p className="text-xs text-amber-900/80">
+                {processo.triagem_notes || processo.observations || "Processo retido na triagem para esclarecimento documental, confirmação clínica ou retorno do requerente."}
+              </p>
+              
+              {/* Canais de Contato Rápidos SEI */}
+              {(processo.email || processo.telefone || processo.contato_email || processo.contato_telefone) && (
+                <div className="flex items-center gap-3 pt-1 text-xs text-amber-950 flex-wrap">
+                  {(processo.email || processo.contato_email) && (
+                    <a
+                      href={`mailto:${processo.email || processo.contato_email}?subject=Processo%20SEI%20${processo.numero_sei}%20-%20CimBahia`}
+                      className="inline-flex items-center gap-1 text-blue-700 hover:underline font-medium"
+                      title="Enviar e-mail para o requerente"
+                    >
+                      <Mail className="h-3.5 w-3.5" />
+                      {processo.email || processo.contato_email}
+                    </a>
+                  )}
+                  {(processo.telefone || processo.contato_telefone) && (
+                    <a
+                      href={`tel:${(processo.telefone || processo.contato_telefone)?.replace(/\D/g, "")}`}
+                      className="inline-flex items-center gap-1 text-emerald-700 hover:underline font-medium"
+                      title="Ligar ou enviar mensagem"
+                    >
+                      <Phone className="h-3.5 w-3.5" />
+                      {processo.telefone || processo.contato_telefone}
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              onClick={handleConcluirTriagem}
+              disabled={isSubmitting}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3.5 py-2 flex items-center gap-1.5 shadow"
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              {isSubmitting ? "Atualizando..." : "Liberar Observação → Enviar para Parecer"}
+            </Button>
+
+            <Button
+              type="button"
+              onClick={handleOpenObservacaoModal}
+              disabled={isSubmitting}
+              variant="outline"
+              className="border-amber-400 text-amber-900 hover:bg-amber-100 text-xs px-3 py-2 flex items-center gap-1.5"
+            >
+              <Edit3 className="h-3.5 w-3.5" />
+              Editar Nota
+            </Button>
+
+            {canManageItems && (
+              <Button
+                type="button"
+                onClick={handleOpenAddItemModal}
+                disabled={isSubmitting}
+                variant="outline"
+                className="border-emerald-400 text-emerald-900 hover:bg-emerald-50 text-xs px-3 py-2 flex items-center gap-1.5 font-medium shadow-xs"
+                title="Editar, remover ou acrescentar fármacos da triagem"
+              >
+                <Pill className="h-4 w-4 text-emerald-600" />
+                Ajustar Fármacos
+              </Button>
+            )}
+
+            <Button
+              type="button"
+              onClick={handleRetornarTriagemInicial}
+              disabled={isSubmitting}
+              variant="ghost"
+              className="text-slate-600 hover:text-slate-900 text-xs px-2.5 py-2 flex items-center gap-1"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Retornar à Triagem
+            </Button>
           </div>
         </div>
       )}
@@ -1019,15 +1584,54 @@ function DetalhesProcessoContent() {
       )}
 
       {/* ========================================================================= */}
-      {/* DADOS DO PACIENTE & RECURSOS REAPROVEITADOS */}
+      {/* BANNER PARA PROCESSO EM ANÁLISE FARMACÊUTICA */}
+      {/* ========================================================================= */}
+      {currentStage === "em_analise" && (
+        <div className="p-4 bg-gradient-to-r from-amber-50 to-emerald-50/40 border border-amber-300 rounded-lg flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-amber-600 text-white rounded-lg shadow-sm">
+              <Clock className="h-5 w-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-bold text-slate-900">
+                  Processo em Análise Farmacêutica
+                </h3>
+                <Badge className="bg-amber-100 text-amber-900 border-amber-400 text-[10px] font-semibold">
+                  Responsável: {processo.assigned_pharmacist?.full_name || currentUser?.full_name || "Farmacêutico Parecerista"}
+                </Badge>
+              </div>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Avalie cada par de Fármaco + CID individualmente e depois emita o laudo regulamentar consolidado para concluir o processo.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              onClick={() => {
+                document.getElementById("secao-parecer-consolidado")?.scrollIntoView({ behavior: "smooth" });
+              }}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-4 py-2 flex items-center gap-2 shadow"
+            >
+              <Send className="h-3.5 w-3.5" />
+              Ir para Emissão do Parecer
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* DADOS DO PACIENTE, CONTATOS & RECURSOS REAPROVEITADOS */}
       {/* ========================================================================= */}
       <Card>
-        <CardContent className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+        <CardContent className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
           <div className="space-y-1">
             <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
               Paciente Requerente
             </span>
-            <div className="font-semibold text-slate-900 text-sm flex items-center gap-1.5">
+            <div className="font-semibold text-slate-900 text-sm flex items-center gap-1.5 flex-wrap">
               <span>{processo.paciente?.full_name || "Não informado"}</span>
               <Badge variant="outline" className="text-[9px]">
                 {processo.paciente?.gender === "M"
@@ -1038,14 +1642,37 @@ function DetalhesProcessoContent() {
                       ? "Outro"
                       : "Sexo N/I"}
               </Badge>
+              {patientAge.faixaEtaria && (
+                <Badge
+                  variant="outline"
+                  className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0 border ${patientAge.badgeStyles.fullBadgeClass}`}
+                >
+                  {patientAge.faixaEtariaLabel}
+                </Badge>
+              )}
             </div>
-            <div className="text-slate-600 font-mono text-[11px]">
-              {processo.paciente?.cpf_not_provided
-                ? "CPF: Não Informado"
-                : `CPF: ${processo.paciente?.cpf || "Não informado"}`}
+
+            {/* Flags de Idade no Momento da Avaliação */}
+            <div className="flex items-center gap-2 text-slate-600 font-mono text-[11px] flex-wrap pt-0.5">
+              <span>
+                {processo.paciente?.cpf_not_provided
+                  ? "CPF: Não Informado"
+                  : `CPF: ${processo.paciente?.cpf || "Não informado"}`}
+              </span>
+              <span>•</span>
+              <span className="font-sans font-medium text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                Idade na Avaliação: <strong>{patientAge.idadeFormatada}</strong>
+              </span>
             </div>
-            <div className="text-slate-500 text-[11px]">
-              CNS: {processo.paciente?.cns || "Não informado"}
+
+            <div className="text-slate-500 text-[11px] flex items-center gap-2 flex-wrap">
+              <span>CNS: {processo.paciente?.cns || "Não informado"}</span>
+              {processo.paciente?.birth_date && (
+                <>
+                  <span>•</span>
+                  <span>Nascimento: {formatDate(processo.paciente.birth_date)}</span>
+                </>
+              )}
             </div>
           </div>
 
@@ -1062,6 +1689,55 @@ function DetalhesProcessoContent() {
             </div>
             <div className="text-slate-500 text-[11px]">
               Origem: {processo.origem?.name || "Demanda Administrativa"}
+            </div>
+          </div>
+
+          {/* Contatos do Processo SEI (E-mail e Telefone) */}
+          <div className="space-y-1 bg-slate-50/70 p-2.5 rounded-lg border border-slate-200">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">
+                Contatos do Processo SEI
+              </span>
+              <button
+                type="button"
+                onClick={handleOpenEditContacts}
+                className="text-[11px] text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                title="Editar canais de contato deste processo"
+              >
+                <Edit3 className="h-3 w-3" />
+                <span>Editar</span>
+              </button>
+            </div>
+
+            <div className="pt-0.5 space-y-1 text-slate-700">
+              <div className="flex items-center gap-1.5 truncate">
+                <Mail className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                {processo.email || processo.contato_email ? (
+                  <a
+                    href={`mailto:${processo.email || processo.contato_email}`}
+                    className="text-blue-700 hover:underline font-mono text-[11px] truncate"
+                    title={processo.email || processo.contato_email || ""}
+                  >
+                    {processo.email || processo.contato_email}
+                  </a>
+                ) : (
+                  <span className="text-slate-400 text-[11px]">E-mail não informado</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5 truncate">
+                <Phone className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                {processo.telefone || processo.contato_telefone ? (
+                  <a
+                    href={`tel:${(processo.telefone || processo.contato_telefone)?.replace(/\D/g, "")}`}
+                    className="text-emerald-700 hover:underline font-mono text-[11px] truncate font-medium"
+                  >
+                    {processo.telefone || processo.contato_telefone}
+                  </a>
+                ) : (
+                  <span className="text-slate-400 text-[11px]">Telefone não informado</span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1093,7 +1769,7 @@ function DetalhesProcessoContent() {
       {/* SEÇÃO PRINCIPAL: DECISÕES INDIVIDUAIS POR COMBO (FÁRMACO + CID) */}
       {/* ========================================================================= */}
       <Card className="border-slate-300 shadow-sm">
-        <CardHeader className="p-4 border-b border-slate-100 bg-slate-50/60 flex flex-row items-center justify-between">
+        <CardHeader className="p-4 border-b border-slate-100 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
               <Pill className="h-4 w-4 text-emerald-600" />
@@ -1103,12 +1779,26 @@ function DetalhesProcessoContent() {
               Cada par de substância e diagnóstico possui sua própria conclusão e fundamentação técnica.
             </CardDescription>
           </div>
-          <Badge variant="outline" className="text-xs font-mono">
-            {itemsState.length} combo(s)
-          </Badge>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant="outline" className="text-xs font-mono">
+              {itemsState.length} combo(s)
+            </Badge>
+            {canManageItems && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleOpenAddItemModal}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs flex items-center gap-1.5 shadow-sm h-8 px-3 font-semibold"
+                title="Acrescentar mais medicamentos ou diagnósticos omitidos na triagem"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Acrescentar Fármaco / CID</span>
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="p-4 space-y-6">
-          {/* Alerta de Feedback quando resposta é reaproveitada */}
+          {/* Alerta de Feedback quando resposta é reaproveitada ou item alterado */}
           {copiedAlertText && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center justify-between gap-2 shadow-sm animate-in fade-in">
               <div className="flex items-center gap-2">
@@ -1125,108 +1815,163 @@ function DetalhesProcessoContent() {
             </div>
           )}
 
-          {itemsState.map((item, index) => {
-            const comboHistoryList = getComboDecisionsHistory(
-              item.farmaco_substancia || item.medication_name,
-              item.cid_code,
-              processo.paciente_id
-            );
+          {itemsState.length === 0 ? (
+            <div className="p-8 text-center border-2 border-dashed border-slate-200 rounded-xl space-y-3 bg-slate-50/50">
+              <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+                <Pill className="h-6 w-6" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-slate-800">Nenhum fármaco cadastrado na demanda</h4>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  A triagem documental não incluiu medicamentos neste processo ou os itens precisaram ser removidos. Você pode acrescentar os fármacos e diagnósticos necessários para a avaliação.
+                </p>
+              </div>
+              {canManageItems && (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleOpenAddItemModal}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs inline-flex items-center gap-1.5 shadow font-semibold"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Acrescentar Fármaco / CID Agora</span>
+                </Button>
+              )}
+            </div>
+          ) : (
+            itemsState.map((item, index) => {
+              const comboHistoryList = getComboDecisionsHistory(
+                item.farmaco_substancia || item.medication_name,
+                item.cid_code,
+                processo.paciente_id
+              );
 
-            return (
-              <div
-                key={item.id}
-                className="p-4 rounded-xl border border-slate-200 bg-white shadow-sm space-y-4"
-              >
-                {/* Header do Item */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-400">#{index + 1}</span>
-                      <h4 className="text-sm font-bold text-slate-900">
-                        {item.farmaco_substancia || item.medication_name}
-                      </h4>
-                      <Badge className="bg-emerald-700 text-white text-[9px]">
-                        Fármaco
+              return (
+                <div
+                  key={item.id}
+                  className="p-4 rounded-xl border border-slate-200 bg-white shadow-sm space-y-4"
+                >
+                  {/* Header do Item */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-400">#{index + 1}</span>
+                        <h4 className="text-sm font-bold text-slate-900">
+                          {item.farmaco_substancia || item.medication_name}
+                        </h4>
+                        <Badge className="bg-emerald-700 text-white text-[9px]">
+                          Fármaco
+                        </Badge>
+                      </div>
+
+                      <div className="flex items-center gap-2 text-xs text-slate-600">
+                        <span className="font-semibold text-slate-700">Diagnóstico:</span>
+                        {item.cid_nao_informado ? (
+                          <Badge variant="outline" className="text-[10px] text-amber-700 bg-amber-50">
+                            CID Não Informado / Investigação
+                          </Badge>
+                        ) : (
+                          <span className="font-mono">
+                            {item.cid_code} - {item.cid_description}
+                          </span>
+                        )}
+                        {item.posology && (
+                          <>
+                            <span>•</span>
+                            <span>Posologia: {item.posology}</span>
+                          </>
+                        )}
+                        {item.monthly_quantity && (
+                          <>
+                            <span>•</span>
+                            <span>Qtd: {item.monthly_quantity}/mês</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Botão de Histórico de Respostas do Combo */}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenComboHistory(item, index)}
+                        className="h-8 px-2.5 text-xs font-semibold border-indigo-200 bg-indigo-50/60 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-900 flex items-center gap-1.5 shadow-xs transition-all"
+                      >
+                        <History className="h-3.5 w-3.5 text-indigo-600" />
+                        <span>Histórico do Combo</span>
+                        {comboHistoryList.length > 0 && (
+                          <Badge className="ml-0.5 bg-indigo-600 text-white text-[10px] px-1.5 py-0 h-4 font-mono">
+                            {comboHistoryList.length}
+                          </Badge>
+                        )}
+                      </Button>
+
+                      {/* Ações de Edição e Exclusão de Itens */}
+                      {canManageItems && (
+                        <div className="flex items-center gap-1">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleOpenEditItemModal(item, index)}
+                            className="h-8 px-2.5 text-xs font-semibold text-blue-700 hover:text-blue-900 hover:bg-blue-50 border-blue-200 flex items-center gap-1 shadow-xs"
+                            title="Editar fármaco, diagnóstico ou posologia cadastrado na triagem"
+                          >
+                            <Edit3 className="h-3.5 w-3.5 text-blue-600" />
+                            <span>Editar</span>
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleOpenDeleteItemModal(item, index)}
+                            className="h-8 px-2.5 text-xs font-semibold text-rose-700 hover:text-rose-900 hover:bg-rose-50 border-rose-200 flex items-center gap-1 shadow-xs"
+                            title="Remover fármaco lançado erroneamente na triagem"
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                            <span>Remover</span>
+                          </Button>
+                        </div>
+                      )}
+
+                      {/* Status atual do item */}
+                      <Badge
+                        className={`text-xs px-2.5 py-1 ${item.status === "deferido"
+                          ? "bg-emerald-600 text-white"
+                          : item.status === "indeferido"
+                            ? "bg-rose-600 text-white"
+                            : item.status === "em_exigencia"
+                              ? "bg-amber-600 text-white"
+                              : item.status === "deferido_parcial"
+                                ? "bg-blue-600 text-white"
+                                : "bg-slate-500 text-white"
+                          }`}
+                      >
+                        {item.status === "deferido"
+                          ? "Deferido"
+                          : item.status === "indeferido"
+                            ? "Indeferido"
+                            : item.status === "em_exigencia"
+                              ? "Em Exigência"
+                              : item.status === "deferido_parcial"
+                                ? "Deferido Parcial"
+                                : "Pendente"}
                       </Badge>
                     </div>
-
-                    <div className="flex items-center gap-2 text-xs text-slate-600">
-                      <span className="font-semibold text-slate-700">Diagnóstico:</span>
-                      {item.cid_nao_informado ? (
-                        <Badge variant="outline" className="text-[10px] text-amber-700 bg-amber-50">
-                          CID Não Informado / Investigação
-                        </Badge>
-                      ) : (
-                        <span className="font-mono">
-                          {item.cid_code} - {item.cid_description}
-                        </span>
-                      )}
-                      {item.posology && (
-                        <>
-                          <span>•</span>
-                          <span>Posologia: {item.posology}</span>
-                        </>
-                      )}
-                      {item.monthly_quantity && (
-                        <>
-                          <span>•</span>
-                          <span>Qtd: {item.monthly_quantity}/mês</span>
-                        </>
-                      )}
-                    </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    {/* Botão de Histórico de Respostas do Combo */}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleOpenComboHistory(item, index)}
-                      className="h-8 px-2.5 text-xs font-semibold border-indigo-200 bg-indigo-50/60 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-900 flex items-center gap-1.5 shadow-xs transition-all"
-                    >
-                      <History className="h-3.5 w-3.5 text-indigo-600" />
-                      <span>Histórico de Respostas do Combo</span>
-                      {comboHistoryList.length > 0 && (
-                        <Badge className="ml-0.5 bg-indigo-600 text-white text-[10px] px-1.5 py-0 h-4 font-mono">
-                          {comboHistoryList.length}
-                        </Badge>
-                      )}
-                    </Button>
-
-                    {/* Status atual do item */}
-                    <Badge
-                      className={`text-xs px-2.5 py-1 ${item.status === "deferido"
-                        ? "bg-emerald-600 text-white"
-                        : item.status === "indeferido"
-                          ? "bg-rose-600 text-white"
-                          : item.status === "em_exigencia"
-                            ? "bg-amber-600 text-white"
-                            : item.status === "deferido_parcial"
-                              ? "bg-blue-600 text-white"
-                              : "bg-slate-500 text-white"
-                        }`}
-                    >
-                      {item.status === "deferido"
-                        ? "Deferido"
-                        : item.status === "indeferido"
-                          ? "Indeferido"
-                          : item.status === "em_exigencia"
-                            ? "Em Exigência"
-                            : item.status === "deferido_parcial"
-                              ? "Deferido Parcial"
-                              : "Pendente"}
-                    </Badge>
-                  </div>
-                </div>
-
-                {/* Recurso: Respostas e Decisões Anteriores deste Combo */}
+                {/* Recurso: Respostas Rápidas e Decisões Anteriores deste Combo */}
                 {comboHistoryList.length > 0 && (
                   <div className="p-3 bg-gradient-to-r from-indigo-50/70 via-blue-50/40 to-indigo-50/70 border border-indigo-200/80 rounded-lg text-xs space-y-2">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-indigo-950 font-semibold">
-                      <span className="flex items-center gap-1.5">
+                      <span className="flex items-center gap-1.5 flex-wrap">
                         <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
-                        Respostas e decisões anteriores catalogadas para este combo ({comboHistoryList.length}):
+                        <span>Respostas Rápidas do Repositório ({comboHistoryList.length}):</span>
+                        <span className="text-[10px] text-slate-500 font-normal">
+                          (2 decisões mais recentes por data de conclusão)
+                        </span>
                       </span>
                       <button
                         type="button"
@@ -1234,7 +1979,7 @@ function DetalhesProcessoContent() {
                         className="text-[11px] text-indigo-700 hover:text-indigo-950 underline font-semibold flex items-center gap-1 cursor-pointer"
                       >
                         <BookOpen className="h-3 w-3" />
-                        Ver Histórico Completo & Pareceres
+                        Ver Histórico Completo ({comboHistoryList.length})
                       </button>
                     </div>
                     <div className="space-y-1.5">
@@ -1256,6 +2001,11 @@ function DetalhesProcessoContent() {
                               >
                                 {dec.status.replace("_", " ")}
                               </Badge>
+                              {dec.sourceType === "processo_anterior" && (
+                                <Badge className="bg-indigo-100 text-indigo-800 border border-indigo-200 text-[9px] px-1 py-0 font-bold">
+                                  {dIdx === 0 ? "1ª Mais Recente" : "2ª Mais Recente"}
+                                </Badge>
+                              )}
                               {dec.isSamePatient && (
                                 <Badge className="bg-purple-100 text-purple-800 text-[9px] px-1 py-0">
                                   Deste Paciente
@@ -1263,11 +2013,11 @@ function DetalhesProcessoContent() {
                               )}
                               <span className="text-[11px] text-slate-500 font-medium">
                                 {dec.sourceType === "processo_anterior"
-                                  ? `Processo SEI ${dec.processoSei} • ${formatDate(dec.data)}`
+                                  ? `Processo SEI ${dec.processoSei} • Concluído em: ${formatDate(dec.dataConclusao || dec.data)} • Parecerista: ${dec.farmaceutico}`
                                   : `${dec.pcdtReferencia || "Precedente Oficial CimBahia"}`}
                               </span>
                             </div>
-                            <p className="line-clamp-2 text-[11px] text-slate-600">
+                            <p className="line-clamp-2 text-[11px] text-slate-600 font-normal">
                               {dec.fundamentacao}
                             </p>
                           </div>
@@ -1378,14 +2128,14 @@ function DetalhesProcessoContent() {
                 </div>
               </div>
             );
-          })}
+          }))}
         </CardContent>
       </Card>
 
       {/* ========================================================================= */}
       {/* SEÇÃO: PARECER CONSOLIDADO UNIFICADO */}
       {/* ========================================================================= */}
-      <Card className="border-emerald-200 shadow-sm">
+      <Card id="secao-parecer-consolidado" className="border-emerald-200 shadow-sm scroll-mt-6">
         <CardHeader className="p-4 border-b border-emerald-100 bg-emerald-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
@@ -1495,14 +2245,25 @@ function DetalhesProcessoContent() {
                 <div className="flex-1 space-y-0.5">
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-slate-800">{h.user_name}</span>
-                    <span className="text-[11px] text-slate-400">
-                      {formatDate(h.timestamp)}
+                    <span className="text-[11px] text-slate-500 font-mono">
+                      {formatDateTime(h.timestamp)}
                     </span>
                   </div>
-                  <p className="text-slate-600">{h.notes}</p>
+                  <p className="text-slate-600 leading-relaxed">{h.notes}</p>
                   {h.to_status && (
-                    <Badge variant="outline" className="text-[9px] mt-1">
-                      Status: {h.to_status}
+                    <Badge
+                      variant="outline"
+                      className={`text-[9px] mt-1 font-semibold ${
+                        h.to_status.includes("concluido") || h.to_status === "concluido"
+                          ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                          : h.to_status.includes("analise")
+                          ? "bg-amber-50 text-amber-900 border-amber-300"
+                          : h.to_status.includes("observacao")
+                          ? "bg-orange-50 text-orange-900 border-orange-300"
+                          : "bg-blue-50 text-blue-800 border-blue-200"
+                      }`}
+                    >
+                      Status: {formatStatusLabel(h.to_status)}
                     </Badge>
                   )}
                 </div>
@@ -1532,8 +2293,8 @@ function DetalhesProcessoContent() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="font-mono font-bold text-slate-900">{proc.numero_sei}</span>
-                    <Badge variant="outline" className="text-[10px]">
-                      {proc.status}
+                    <Badge variant="outline" className="text-[10px] font-medium">
+                      {formatStatusLabel(proc.status)}
                     </Badge>
                   </div>
                   <span className="text-[11px] text-slate-500">
@@ -1622,6 +2383,15 @@ function DetalhesProcessoContent() {
                 {processo.paciente?.cpf_not_provided
                   ? "Não Informado"
                   : processo.paciente?.cpf || "Não informado"}
+              </div>
+              <div>
+                <strong>Idade na Avaliação:</strong> {patientAge.idadeFormatada} ({patientAge.faixaEtariaLabel})
+              </div>
+              <div>
+                <strong>Nascimento:</strong>{" "}
+                {processo.paciente?.birth_date
+                  ? formatDate(processo.paciente.birth_date)
+                  : "Não informado"}
               </div>
               <div>
                 <strong>Município / Base:</strong> {processo.municipio?.name} /{" "}
@@ -1958,7 +2728,7 @@ function DetalhesProcessoContent() {
                         </div>
 
                         <div className="text-[11px] text-slate-500 flex items-center gap-2">
-                          <span>Data: {formatDate(hist.data)}</span>
+                          <span>Concluído em: {formatDate(hist.dataConclusao || hist.data)}</span>
                           <span>•</span>
                           <span className="font-medium text-slate-700">{hist.farmaceutico}</span>
                         </div>
@@ -2131,6 +2901,395 @@ function DetalhesProcessoContent() {
             >
               <Trash2 className="h-3.5 w-3.5" />
               {isDeleting ? "Excluindo..." : "Sim, Excluir Processo"}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* ========================================================================= */}
+      {/* MODAL DE OBSERVAÇÃO NA TRIAGEM */}
+      {/* ========================================================================= */}
+      <Dialog
+        open={isObservacaoModalOpen}
+        onOpenChange={setIsObservacaoModalOpen}
+        title="Etapa de Observação (Triagem Documental)"
+      >
+        <div className="space-y-4 pt-2">
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Ao colocar o processo em <strong>Observação</strong>, ele permanecerá na fila de triagem com destaque para pendência documental, retorno de exames ou contato com o solicitante.
+          </p>
+
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+              <Info className="h-3.5 w-3.5 text-amber-600" />
+              Motivo / Instruções da Observação *
+            </label>
+            <textarea
+              rows={4}
+              value={observacaoNoteInput}
+              onChange={(e) => setObservacaoNoteInput(e.target.value)}
+              placeholder="Ex: Aguardando envio de receita atualizada e laudo confirmatório pelo paciente ou resposta por telefone..."
+              className="w-full text-xs p-2.5 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500 font-sans"
+            />
+            <p className="text-[10px] text-slate-400">
+              Esta anotação ficará visível em destaque para toda a equipe durante a conferência documental.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isSubmitting}
+              onClick={() => setIsObservacaoModalOpen(false)}
+              className="text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isSubmitting}
+              onClick={handleSalvarObservacao}
+              className="bg-amber-600 hover:bg-amber-700 text-white text-xs flex items-center gap-1.5 shadow"
+            >
+              <Clock className="h-3.5 w-3.5" />
+              {isSubmitting ? "Salvando..." : "Salvar em Observação"}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* ========================================================================= */}
+      {/* MODAL DE EDIÇÃO DE CONTATOS DO PROCESSO SEI */}
+      {/* ========================================================================= */}
+      <Dialog
+        open={isEditContactsModalOpen}
+        onOpenChange={setIsEditContactsModalOpen}
+        title="Editar Contatos do Processo SEI"
+      >
+        <div className="space-y-4 pt-2">
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Atualize o e-mail e telefone de referência para este processo. Esses dados facilitam a comunicação rápida durante a triagem e o envio de pareceres técnicos.
+          </p>
+
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5 text-blue-600" />
+                E-mail de Contato
+              </label>
+              <input
+                type="email"
+                value={editEmailInput}
+                onChange={(e) => setEditEmailInput(e.target.value)}
+                placeholder="ex: contato@saude.ba.gov.br ou paciente@email.com"
+                className="w-full text-xs p-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+                <Phone className="h-3.5 w-3.5 text-emerald-600" />
+                Telefone de Contato
+              </label>
+              <input
+                type="tel"
+                value={editTelefoneInput}
+                onChange={(e) => setEditTelefoneInput(e.target.value)}
+                placeholder="ex: (71) 98765-4321"
+                className="w-full text-xs p-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isSubmitting}
+              onClick={() => setIsEditContactsModalOpen(false)}
+              className="text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isSubmitting}
+              onClick={handleSaveContacts}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs flex items-center gap-1.5 shadow"
+            >
+              <Save className="h-3.5 w-3.5" />
+              {isSubmitting ? "Salvando..." : "Salvar Contatos"}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* ========================================================================= */}
+      {/* MODAL DE ADICIONAR / EDITAR FÁRMACO + CID DA DEMANDA */}
+      {/* ========================================================================= */}
+      <Dialog
+        open={isItemModalOpen}
+        onOpenChange={setIsItemModalOpen}
+        title={itemModalMode === "add" ? "Acrescentar Fármaco / CID à Demanda" : "Editar Fármaco / CID da Triagem"}
+        description="Como farmacêutico, você pode corrigir, acrescentar ou ajustar os fármacos e diagnósticos desta demanda para a avaliação técnica."
+        maxWidth="lg"
+      >
+        <div className="space-y-4 pt-1">
+          {itemErrorMessage && (
+            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-rose-600 flex-shrink-0" />
+              <span>{itemErrorMessage}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Fármaco / Substância */}
+            <div className="space-y-1 relative">
+              <label className="block text-xs font-semibold text-slate-700">
+                Fármaco / Substância Ativa *
+              </label>
+              <div ref={farmacoDropdownRef} className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <Input
+                  placeholder="Pesquise no catálogo ou digite o fármaco..."
+                  value={itemFarmacoInput}
+                  onChange={(e) => {
+                    setItemFarmacoInput(e.target.value);
+                    setIsFarmacoDropdownOpen(true);
+                  }}
+                  onFocus={() => setIsFarmacoDropdownOpen(true)}
+                  className="pl-9 text-xs"
+                />
+                {isFarmacoDropdownOpen && filteredFarmacos.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-50 max-h-52 overflow-y-auto">
+                    {filteredFarmacos.map((f) => (
+                      <div
+                        key={f.id}
+                        onClick={() => {
+                          setItemFarmacoInput(f.name);
+                          setIsFarmacoDropdownOpen(false);
+                        }}
+                        className="p-2.5 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0 text-xs"
+                      >
+                        <div className="font-semibold text-slate-900 flex items-center justify-between gap-2">
+                          <span>{f.name}</span>
+                          {f.component && (
+                            <Badge variant="outline" className="text-[10px] bg-slate-50 text-slate-600 border-slate-200 shrink-0">
+                              {f.component}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-400">
+                Catálogo Anvisa / SUS com mais de 4.000 substâncias cadastradas.
+              </p>
+            </div>
+
+            {/* Diagnóstico CID-10 */}
+            <div className="space-y-1 relative">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-slate-700">
+                  Diagnóstico Clínico (CID-10) *
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={itemCidNaoInformado}
+                    onChange={(e) => {
+                      setItemCidNaoInformado(e.target.checked);
+                      if (e.target.checked) {
+                        setItemCidInput("");
+                        setItemSelectedCid(null);
+                        setIsCidDropdownOpen(false);
+                      }
+                    }}
+                    className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <span className="text-[11px] font-medium text-amber-800">
+                    CID Não Informado
+                  </span>
+                </label>
+              </div>
+
+              {itemCidNaoInformado ? (
+                <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-800 font-mono flex items-center gap-2">
+                  <Info className="h-3.5 w-3.5 text-amber-600" />
+                  <span>N/I - Investigação diagnóstica em andamento</span>
+                </div>
+              ) : (
+                <div ref={cidDropdownRef} className="relative">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  <Input
+                    placeholder="Código (ex: M05, K50) ou patologia..."
+                    value={itemCidInput}
+                    onChange={(e) => {
+                      setItemCidInput(e.target.value);
+                      setItemSelectedCid(null);
+                      setIsCidDropdownOpen(true);
+                    }}
+                    onFocus={() => setIsCidDropdownOpen(true)}
+                    className="pl-9 text-xs"
+                  />
+                  {isCidDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-50 max-h-52 overflow-y-auto">
+                      {isLoadingCids ? (
+                        <div className="p-3 text-xs text-slate-500">Buscando CIDs no catálogo...</div>
+                      ) : cidSearchError ? (
+                        <div className="p-3 text-xs text-rose-700">{cidSearchError}</div>
+                      ) : itemCidResults.length > 0 ? (
+                        itemCidResults.map((c) => (
+                          <div
+                            key={c.id}
+                            onClick={() => {
+                              setItemSelectedCid(c);
+                              setItemCidInput(`${c.code} - ${c.description}`);
+                              setIsCidDropdownOpen(false);
+                            }}
+                            className="p-2.5 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-b-0 text-xs"
+                          >
+                            <div className="font-medium text-slate-900 flex items-center gap-2">
+                              <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 font-mono text-[10px] shrink-0">
+                                {c.code}
+                              </Badge>
+                              <span className="truncate">{c.description}</span>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-3 text-xs text-slate-500">Nenhum CID encontrado.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              <p className="text-[10px] text-slate-400">
+                {itemCidNaoInformado ? "Marcado como sem CID definitivo." : "Selecione o código de patologia oficial."}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-slate-700">
+                Posologia Prescrita
+              </label>
+              <Input
+                placeholder="Ex: 1 comprimido via oral a cada 12 horas"
+                value={itemPosology}
+                onChange={(e) => setItemPosology(e.target.value)}
+                className="text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-slate-700">
+                Quantidade Mensal Estimada
+              </label>
+              <Input
+                type="number"
+                min={1}
+                placeholder="1"
+                value={itemMonthlyQuantity}
+                onChange={(e) => setItemMonthlyQuantity(e.target.value)}
+                className="text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isSubmitting}
+              onClick={() => setIsItemModalOpen(false)}
+              className="text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isSubmitting}
+              onClick={handleSaveItemModal}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs flex items-center gap-1.5 shadow"
+            >
+              <Save className="h-3.5 w-3.5" />
+              {isSubmitting ? "Salvando..." : itemModalMode === "add" ? "Acrescentar Fármaco" : "Salvar Alterações"}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* ========================================================================= */}
+      {/* MODAL DE CONFIRMAÇÃO DE REMOÇÃO DE FÁRMACO */}
+      {/* ========================================================================= */}
+      <Dialog
+        open={isDeleteItemModalOpen}
+        onOpenChange={setIsDeleteItemModalOpen}
+        title="Remover Fármaco da Demanda"
+        description="Esta ação removerá o medicamento e seu diagnóstico da análise técnica do processo SEI."
+        maxWidth="sm"
+      >
+        <div className="space-y-4 pt-1">
+          {itemToDelete && (
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1.5">
+              <div>
+                <span className="text-slate-500">Fármaco / Substância:</span>{" "}
+                <strong className="text-slate-900">
+                  {itemToDelete.item.farmaco_substancia || itemToDelete.item.medication_name}
+                </strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Diagnóstico:</span>{" "}
+                <span className="font-mono text-slate-800">
+                  {itemToDelete.item.cid_nao_informado ? "CID Não Informado" : `${itemToDelete.item.cid_code} - ${itemToDelete.item.cid_description || ""}`}
+                </span>
+              </div>
+              {itemToDelete.item.posology && (
+                <div>
+                  <span className="text-slate-500">Posologia:</span>{" "}
+                  <span className="text-slate-700">{itemToDelete.item.posology}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Deseja realmente remover este medicamento? Use este recurso caso a triagem documental tenha lançado o fármaco erroneamente ou em duplicidade.
+          </p>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isSubmitting}
+              onClick={() => {
+                setIsDeleteItemModalOpen(false);
+                setItemToDelete(null);
+              }}
+              className="text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isSubmitting}
+              onClick={handleConfirmDeleteItem}
+              className="bg-rose-600 hover:bg-rose-700 text-white text-xs flex items-center gap-1.5 shadow"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {isSubmitting ? "Removendo..." : "Sim, Remover Fármaco"}
             </Button>
           </div>
         </div>
