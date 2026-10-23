@@ -1,6 +1,6 @@
-# CimBahia
+# CIMBAHIA
 
-Sistema da Secretaria da Saúde do Estado da Bahia para apoiar a regulação de processos e a análise e emissão de pareceres farmacêuticos. O CimBahia reúne o fluxo dos processos, os dados dos pacientes, as decisões técnicas e a organização das unidades regionais em uma única aplicação.
+Sistema da Secretaria da Saúde do Estado da Bahia para apoiar a regulação de processos e a análise e emissão de pareceres farmacêuticos. O CIMBAHIA reúne o fluxo dos processos, os dados dos pacientes, as decisões técnicas e a organização das unidades regionais em uma única aplicação.
 
 ## Funcionalidades
 
@@ -52,7 +52,7 @@ Sistema da Secretaria da Saúde do Estado da Bahia para apoiar a regulação de 
    4. `supabase/seed-municipios-bahia.sql`
    5. `supabase/migrations/sigtap_competencia_atual.sql`
 
-   O schema cria as tabelas e políticas do CimBahia, incluindo `cb_cids`. A migração de CIDs transfere os registros e vínculos existentes da tabela antiga, quando ela existe, e atualiza a chave estrangeira dos itens de processo. Os arquivos seguintes carregam as unidades regionais, os municípios baianos e os dados de medicamentos e diagnósticos SIGTAP/CEAF.
+   O schema cria as tabelas e políticas do CIMBAHIA, incluindo `cb_cids`. A migração de CIDs transfere os registros e vínculos existentes da tabela antiga, quando ela existe, e atualiza a chave estrangeira dos itens de processo. Os arquivos seguintes carregam as unidades regionais, os municípios baianos e os dados de medicamentos e diagnósticos SIGTAP/CEAF.
 
 4. Inicie o servidor de desenvolvimento:
 

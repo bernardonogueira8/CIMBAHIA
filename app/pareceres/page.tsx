@@ -31,8 +31,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { useApp } from "@/lib/context/AppContext";
-import { ParecerSearchResponse, ParecerSearchResultItem } from "@/app/api/pareceres/route";
-import { formatDate, normalizeText } from "@/lib/utils";
+import { ParecerSearchResponse, ParecerSearchResultItem } from "@/lib/types";
+import { formatDate, normalizeText, matchSubstance } from "@/lib/utils";
 
 export default function BancoPareceresPage() {
   const { processos } = useApp();
@@ -81,8 +81,13 @@ export default function BancoPareceresPage() {
     }
   };
 
+  // Debounce na busca de API para evitar sobrecarga e condições de corrida
   useEffect(() => {
-    fetchPareceres(searchTerm, cidFilter, statusFilter);
+    const timer = setTimeout(() => {
+      fetchPareceres(searchTerm, cidFilter, statusFilter);
+    }, 200);
+
+    return () => clearTimeout(timer);
   }, [searchTerm, cidFilter, statusFilter, processos]);
 
   // Função para copiar texto da fundamentação com feedback
@@ -92,11 +97,34 @@ export default function BancoPareceresPage() {
     setTimeout(() => setCopiedId(null), 2500);
   };
 
+  // Filtragem reativa instantânea (0ms) no cliente com matchSubstance
   const respostasFiltradas = useMemo(() => {
     if (!data) return [];
-    if (statusFilter === "all") return data.respostas;
-    return data.respostas.filter((r) => r.status === statusFilter);
-  }, [data, statusFilter]);
+    let list = data.respostas;
+
+    // Filtro por status
+    if (statusFilter !== "all") {
+      list = list.filter((r) => r.status === statusFilter);
+    }
+
+    // Filtro por CID
+    if (cidFilter.trim()) {
+      const cleanCid = cidFilter.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const normCid = normalizeText(cidFilter);
+      list = list.filter((r) => {
+        const itemCidCode = (r.cid_code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+        const itemCidDesc = normalizeText(r.cid_description || "");
+        return itemCidCode.startsWith(cleanCid) || itemCidDesc.includes(normCid);
+      });
+    }
+
+    // Filtro estrito por Substância Ativa / Fármaco / Medicamento
+    if (searchTerm.trim()) {
+      list = list.filter((r) => matchSubstance(r.substancia, searchTerm));
+    }
+
+    return list;
+  }, [data, statusFilter, cidFilter, searchTerm]);
 
   return (
     <div className="space-y-6 pb-12">
@@ -213,11 +241,10 @@ export default function BancoPareceresPage() {
                   key={sub}
                   type="button"
                   onClick={() => setSearchTerm(sub)}
-                  className={`text-xs px-2.5 py-1 rounded-full border transition-all flex items-center gap-1.5 ${
-                    normalizeText(searchTerm) === normalizeText(sub)
+                  className={`text-xs px-2.5 py-1 rounded-full border transition-all flex items-center gap-1.5 ${normalizeText(searchTerm) === normalizeText(sub)
                       ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
                       : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
-                  }`}
+                    }`}
                 >
                   <span>💊</span>
                   <span>{sub}</span>
@@ -344,30 +371,28 @@ export default function BancoPareceresPage() {
             {respostasFiltradas.map((item) => (
               <Card
                 key={item.id}
-                className={`border transition-all ${
-                  item.status === "deferido"
+                className={`border transition-all ${item.status === "deferido"
                     ? "border-emerald-200 hover:border-emerald-300 bg-gradient-to-r from-emerald-50/20 to-white"
                     : item.status === "indeferido"
-                    ? "border-rose-200 hover:border-rose-300 bg-gradient-to-r from-rose-50/20 to-white"
-                    : "border-amber-200 hover:border-amber-300 bg-gradient-to-r from-amber-50/20 to-white"
-                }`}
+                      ? "border-rose-200 hover:border-rose-300 bg-gradient-to-r from-rose-50/20 to-white"
+                      : "border-amber-200 hover:border-amber-300 bg-gradient-to-r from-amber-50/20 to-white"
+                  }`}
               >
                 <CardHeader className="p-4 pb-2 border-b border-slate-100 flex flex-row items-center justify-between gap-4">
                   <div className="flex items-center gap-2 flex-wrap">
                     <Badge
-                      className={`text-xs font-semibold ${
-                        item.status === "deferido"
+                      className={`text-xs font-semibold ${item.status === "deferido"
                           ? "bg-emerald-600 text-white"
                           : item.status === "indeferido"
-                          ? "bg-rose-600 text-white"
-                          : "bg-amber-600 text-white"
-                      }`}
+                            ? "bg-rose-600 text-white"
+                            : "bg-amber-600 text-white"
+                        }`}
                     >
                       {item.status === "deferido"
                         ? "✅ Deferido"
                         : item.status === "indeferido"
-                        ? "❌ Indeferido"
-                        : "⚠️ Em Exigência"}
+                          ? "❌ Indeferido"
+                          : "⚠️ Em Exigência"}
                     </Badge>
 
                     <h3 className="text-sm font-bold text-slate-900">{item.titulo}</h3>
@@ -454,26 +479,6 @@ export default function BancoPareceresPage() {
                       {item.fundamentacao_tecnica}
                     </div>
                   </div>
-
-                  {/* PARECER CONSOLIDADO GERAL (OPCIONAL/COLAPSÁVEL) */}
-                  {item.parecer_consolidado && item.parecer_consolidado !== item.fundamentacao_tecnica && (
-                    <details className="text-xs text-slate-600 border border-slate-200 rounded-lg p-2.5 bg-slate-50/60">
-                      <summary className="font-semibold text-slate-700 cursor-pointer hover:text-slate-900 select-none flex items-center gap-1.5">
-                        <FileText className="h-3.5 w-3.5 text-slate-500" />
-                        Ver Parecer Técnico Consolidado Geral do Processo SEI
-                      </summary>
-                      <div className="mt-2 p-2.5 bg-white border border-slate-200 rounded text-[11px] font-mono leading-relaxed whitespace-pre-wrap text-slate-700">
-                        {item.parecer_consolidado}
-                      </div>
-                    </details>
-                  )}
-
-                  {/* RECOMENDAÇÕES */}
-                  {item.recomendacoes && (
-                    <div className="text-xs bg-emerald-50/50 border border-emerald-100 p-2.5 rounded-md text-emerald-900">
-                      <strong>Recomendações e Monitoramento:</strong> {item.recomendacoes}
-                    </div>
-                  )}
                 </CardContent>
               </Card>
             ))}

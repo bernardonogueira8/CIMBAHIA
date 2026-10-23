@@ -175,8 +175,8 @@ export async function getValidToken1(forceRefresh = false): Promise<string> {
   const baseUrl = getSesabBaseUrl();
   const loginUrl = requireHttpsUrl(
     process.env.SESAB_LOGIN_URL ||
-      process.env.AUTH_API_1_URL ||
-      `${baseUrl}/api/v1/login`,
+    process.env.AUTH_API_1_URL ||
+    `${baseUrl}/api/v1/login`,
     "SESAB_LOGIN_URL"
   );
   const { email, password } = getSesabCredentials();
@@ -204,7 +204,7 @@ export async function getValidToken1(forceRefresh = false): Promise<string> {
         headers: {
           "Accept": "application/json",
           "Content-Type": "application/json",
-          "User-Agent": "CimBahia-Core/1.0",
+          "User-Agent": "CIMBAHIA-Core/1.0",
         },
         body: JSON.stringify(payload),
         signal: controller.signal,
@@ -273,8 +273,8 @@ export async function getValidToken2(forceRefresh = false): Promise<string> {
   const baseUrl = getSesabBaseUrl();
   const logisticaUrl = requireHttpsUrl(
     process.env.SESAB_LOGISTICA_URL ||
-      process.env.AUTH_API_2_URL ||
-      `${baseUrl}/logistica/login`,
+    process.env.AUTH_API_2_URL ||
+    `${baseUrl}/logistica/login`,
     "SESAB_LOGISTICA_URL"
   );
   const { email, password } = getSesabCredentials();
@@ -302,7 +302,7 @@ export async function getValidToken2(forceRefresh = false): Promise<string> {
         headers: {
           "Accept": "application/json",
           "Content-Type": "application/json",
-          "User-Agent": "CimBahia-Core/1.0",
+          "User-Agent": "CIMBAHIA-Core/1.0",
         },
         body: JSON.stringify(payload),
         signal: controller.signal,
@@ -382,7 +382,7 @@ export async function getSesabAuthHeaders(forceRefresh = false): Promise<{
       "Authorization": authHeaderValue,
       "X-XSRF-TOKEN": token2,
       "Accept": "application/json",
-      "User-Agent": "CimBahia-Core/1.0",
+      "User-Agent": "CIMBAHIA-Core/1.0",
     },
     token1Preview: preview(token1),
     token2Preview: preview(token2),

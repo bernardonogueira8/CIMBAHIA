@@ -8,7 +8,10 @@ export function MainContainer({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { isAuthenticated, isDemoMode, authChecked } = useApp();
-  const isPublicPage = pathname === "/" || pathname === "/login";
+  const isPublicPage =
+    pathname === "/" ||
+    pathname === "/login" ||
+    pathname.startsWith("/consulta-publica");
 
   useEffect(() => {
     if (authChecked && !isPublicPage && !isAuthenticated && !isDemoMode) {

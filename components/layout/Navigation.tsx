@@ -21,7 +21,14 @@ export function Navigation() {
   const pathname = usePathname();
   const { canEdit, isAuthenticated, currentUser, authChecked } = useApp();
 
-  if (!authChecked || pathname === "/" || pathname === "/login" || !isAuthenticated || !currentUser) {
+  if (
+    !authChecked ||
+    pathname === "/" ||
+    pathname === "/login" ||
+    pathname.startsWith("/consulta-publica") ||
+    !isAuthenticated ||
+    !currentUser
+  ) {
     return null;
   }
 

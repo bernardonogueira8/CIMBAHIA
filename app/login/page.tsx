@@ -170,7 +170,7 @@ export default function LoginPage() {
       <div className="absolute inset-0 z-0 overflow-hidden bg-[#121418]">
         <img
           src="/background-1.jpg"
-          alt="CimBahia Ambiente Institucional"
+          alt="CIMBAHIA Ambiente Institucional"
           className="w-full h-full object-cover object-center filter brightness-[0.25] scale-105"
         />
         <div className="absolute inset-0 bg-radial from-transparent via-[#171A20]/70 to-[#171A20]/95" />
@@ -178,15 +178,15 @@ export default function LoginPage() {
 
       {/* Card de Login Centralizado */}
       <div className="relative z-10 w-full max-w-md bg-[#171A20]/95 backdrop-blur-md border border-[#393C41] rounded-xl shadow-2xl p-6 sm:p-8 text-white animate-in zoom-in-95 duration-200">
-        {/* Top Header com Logo Oficial CimBahia */}
+        {/* Top Header com Logo Oficial CIMBAHIA */}
         <div className="flex flex-col items-center text-center mb-6">
           <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[#282C34] to-[#171A20] border border-[#393C41] p-3 shadow-lg flex items-center justify-center mb-3">
             <ShieldCheck className="w-9 h-9 text-[#E82127]" />
           </div>
-          
+
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-white">
-              CimBahia
+              CIMBAHIA
             </h1>
             <span className="w-2 h-2 rounded-full bg-[#E82127]" />
             <Badge variant="outline" className="border-[#393C41] text-[#E82127] text-[10px] tracking-wider uppercase font-semibold">

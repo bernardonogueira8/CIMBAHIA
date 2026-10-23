@@ -13,14 +13,14 @@ export function getSupabaseConfig(): SupabaseConfig | null {
       !anonKey && "NEXT_PUBLIC_SUPABASE_ANON_KEY",
     ].filter((value): value is string => Boolean(value));
     console.error(
-      `[CimBahia] Configuração do Supabase ausente: ${missing.join(", ")}.`
+      `[CIMBAHIA] Configuração do Supabase ausente: ${missing.join(", ")}.`
     );
     return null;
   }
 
   if (url.includes("seu-projeto") || anonKey.includes("sua-chave")) {
     console.error(
-      "[CimBahia] Configure valores reais para NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY."
+      "[CIMBAHIA] Configure valores reais para NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY."
     );
     return null;
   }
@@ -37,12 +37,12 @@ export function getSupabaseConfig(): SupabaseConfig | null {
       parsedUrl.password
     ) {
       console.error(
-        "[CimBahia] NEXT_PUBLIC_SUPABASE_URL deve usar HTTPS e não pode conter credenciais."
+        "[CIMBAHIA] NEXT_PUBLIC_SUPABASE_URL deve usar HTTPS e não pode conter credenciais."
       );
       return null;
     }
   } catch {
-    console.error("[CimBahia] NEXT_PUBLIC_SUPABASE_URL não é uma URL válida.");
+    console.error("[CIMBAHIA] NEXT_PUBLIC_SUPABASE_URL não é uma URL válida.");
     return null;
   }
 

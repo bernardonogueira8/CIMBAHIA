@@ -80,7 +80,7 @@ export const FAIXA_ETARIA_CONFIG: Record<
 };
 
 /**
- * Normaliza e converte strings de data (ex: '1985-04-12', '1985-04-12T10:00:00Z') para Date local
+ * Normaliza e converte strings de data (ex: '1985-04-12', '12/04/1985', '1985-04-12T10:00:00Z') para Date local
  * seguro contra bugs de fuso horário.
  */
 function parseDateSafe(dateInput: string | Date | null | undefined): Date | null {
@@ -92,8 +92,8 @@ function parseDateSafe(dateInput: string | Date | null | undefined): Date | null
   const str = String(dateInput).trim();
   if (!str) return null;
 
-  // Se estiver no formato YYYY-MM-DD
-  const ymdMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  // 1. Se estiver no formato YYYY-MM-DD ou YYYY/MM/DD
+  const ymdMatch = str.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
   if (ymdMatch) {
     const year = parseInt(ymdMatch[1], 10);
     const month = parseInt(ymdMatch[2], 10) - 1;
@@ -101,8 +101,20 @@ function parseDateSafe(dateInput: string | Date | null | undefined): Date | null
     return new Date(year, month, day, 12, 0, 0); // Meio-dia para imunidade a fuso horário
   }
 
+  // 2. Se estiver no formato brasileiro DD/MM/YYYY ou DD-MM-YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10) - 1;
+    const year = parseInt(dmyMatch[3], 10);
+    return new Date(year, month, day, 12, 0, 0); // Meio-dia para imunidade a fuso horário
+  }
+
   const parsed = new Date(str);
-  return isNaN(parsed.getTime()) ? null : parsed;
+  if (isNaN(parsed.getTime())) return null;
+
+  // Garante meio-dia local para datas genéricas
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 12, 0, 0);
 }
 
 /**
@@ -120,7 +132,6 @@ export function calculatePatientAgeAtEvaluation(
   evaluationDate?: string | Date | null | undefined
 ): PatientAgeResult {
   const birth = parseDateSafe(birthDate);
-  const evalDate = parseDateSafe(evaluationDate) || new Date();
 
   if (!birth) {
     return {
@@ -134,21 +145,33 @@ export function calculatePatientAgeAtEvaluation(
     };
   }
 
-  // Diferença total em milissegundos e dias
-  const diffTime = evalDate.getTime() - birth.getTime();
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  const today = new Date();
+  const todaySafe = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0);
 
-  if (diffDays < 0) {
+  // Se a data de nascimento estiver estritamente no futuro em relação ao dia de hoje
+  if (birth.getTime() > todaySafe.getTime()) {
     return {
       idadeAnos: null,
       idadeMeses: null,
       idadeDias: null,
-      idadeFormatada: "Data futura inválida",
+      idadeFormatada: "Data não informada",
       faixaEtaria: null,
       faixaEtariaLabel: "Não informada",
       badgeStyles: DEFAULT_BADGE_STYLES,
     };
   }
+
+  let evalDate = parseDateSafe(evaluationDate) || todaySafe;
+
+  // Se a data do processo/avaliação fornecida for anterior ao nascimento do paciente,
+  // utiliza a data de hoje para calcular a idade real atual do paciente sem exibir erro
+  if (evalDate.getTime() < birth.getTime()) {
+    evalDate = todaySafe;
+  }
+
+  // Diferença total em dias com arredondamento seguro
+  const diffTime = evalDate.getTime() - birth.getTime();
+  const diffDays = Math.max(0, Math.round(diffTime / (1000 * 60 * 60 * 24)));
 
   // Cálculo de anos completos
   let years = evalDate.getFullYear() - birth.getFullYear();
@@ -158,6 +181,7 @@ export function calculatePatientAgeAtEvaluation(
   if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
     years--;
   }
+  if (years < 0) years = 0;
 
   // Cálculo de meses completos
   let months = (evalDate.getFullYear() - birth.getFullYear()) * 12 + (evalDate.getMonth() - birth.getMonth());

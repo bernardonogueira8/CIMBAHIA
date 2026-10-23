@@ -586,11 +586,10 @@ export default function UnidadesEstruturaPage() {
         <button
           type="button"
           onClick={() => setActiveMainTab("bases")}
-          className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${
-            activeMainTab === "bases"
+          className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${activeMainTab === "bases"
               ? "border-emerald-600 text-emerald-700 font-bold"
               : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
+            }`}
         >
           <Building2 className="h-4 w-4" />
           Bases Regionais & Equipes ({units.length})
@@ -599,11 +598,10 @@ export default function UnidadesEstruturaPage() {
         <button
           type="button"
           onClick={() => setActiveMainTab("municipios")}
-          className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${
-            activeMainTab === "municipios"
+          className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${activeMainTab === "municipios"
               ? "border-emerald-600 text-emerald-700 font-bold"
               : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
+            }`}
         >
           <MapPin className="h-4 w-4" />
           Municípios da Bahia ({municipios.length})
@@ -612,11 +610,10 @@ export default function UnidadesEstruturaPage() {
         <button
           type="button"
           onClick={() => setActiveMainTab("nucleos")}
-          className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${
-            activeMainTab === "nucleos"
+          className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${activeMainTab === "nucleos"
               ? "border-emerald-600 text-emerald-700 font-bold"
               : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
+            }`}
         >
           <Compass className="h-4 w-4" />
           Núcleos (NRS) & DIRES
@@ -625,11 +622,10 @@ export default function UnidadesEstruturaPage() {
         <button
           type="button"
           onClick={() => setActiveMainTab("origens")}
-          className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${
-            activeMainTab === "origens"
+          className={`pb-3 px-4 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 ${activeMainTab === "origens"
               ? "border-emerald-600 text-emerald-700 font-bold"
               : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
+            }`}
         >
           <Landmark className="h-4 w-4" />
           Origens de Demanda ({origens.length})
@@ -1605,7 +1601,7 @@ export default function UnidadesEstruturaPage() {
           open={true}
           onOpenChange={() => setIsOrigemModalOpen(false)}
           title={editingOrigem ? "Editar Origem de Demanda" : "Nova Origem de Demanda"}
-          description="Cadastre órgãos ou canais oficiais que originam processos no CimBahia."
+          description="Cadastre órgãos ou canais oficiais que originam processos no CIMBAHIA."
           maxWidth="md"
         >
           <form onSubmit={handleSaveOrigem} className="space-y-3">

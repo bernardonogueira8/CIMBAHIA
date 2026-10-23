@@ -530,3 +530,48 @@ export interface SigtapCompetencyResult {
   totalCids: number;
   totalRelations: number;
 }
+
+export interface ParecerSearchResultItem {
+  id: string;
+  origem: "processo_real" | "precedente_oficial";
+  processo_sei?: string;
+  paciente_nome?: string;
+  data: string;
+  farmaceutico: string;
+  crf?: string;
+  substancia: string;
+  posologia?: string;
+  componente?: string;
+  cid_code: string;
+  cid_description?: string;
+  status: "deferido" | "indeferido" | "em_exigencia" | "deferido_parcial";
+  titulo: string;
+  pcdt_referencia: string;
+  fundamentacao_tecnica: string;
+  parecer_consolidado?: string;
+  recomendacoes?: string;
+  criterios_chave?: string[];
+}
+
+export interface ParecerSearchResponse {
+  query: {
+    termo?: string;
+    substancia?: string;
+    cid?: string;
+    status?: string;
+  };
+  total: number;
+  estatisticas: {
+    substancia_identificada: string | null;
+    pcdt_referencia: string | null;
+    taxa_deferimento_estimada: string;
+    taxa_indeferimento_estimada: string;
+    taxa_exigencia_estimada: string;
+    total_avaliacoes_base: number;
+    principais_cids: string[];
+    tempo_medio_analise_dias: number;
+  };
+  precedente_oficial: any | null;
+  respostas: ParecerSearchResultItem[];
+}
+

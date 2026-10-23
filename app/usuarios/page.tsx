@@ -174,10 +174,10 @@ export default function UsuariosPage() {
       roleFilter === "all"
         ? true
         : roleFilter === "gestor"
-        ? p.role === "admin" || p.role === "gestor"
-        : roleFilter === "farmaceutico"
-        ? p.role === "pharmacist" || p.role === "farmaceutico"
-        : p.role === "viewer" || p.role === "administrativo";
+          ? p.role === "admin" || p.role === "gestor"
+          : roleFilter === "farmaceutico"
+            ? p.role === "pharmacist" || p.role === "farmaceutico"
+            : p.role === "viewer" || p.role === "administrativo";
 
     return matchSearch && matchRole;
   });
@@ -360,11 +360,10 @@ export default function UsuariosPage() {
                           <button
                             type="button"
                             onClick={() => handleToggleStatus(p)}
-                            className={`p-1.5 rounded transition-colors cursor-pointer ${
-                              isUserActive
+                            className={`p-1.5 rounded transition-colors cursor-pointer ${isUserActive
                                 ? "hover:bg-red-50 text-[#5C5E62] hover:text-red-600"
                                 : "hover:bg-emerald-50 text-[#5C5E62] hover:text-emerald-600"
-                            }`}
+                              }`}
                             title={isUserActive ? "Inativar acesso" : "Reativar acesso"}
                           >
                             {isUserActive ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
@@ -384,7 +383,7 @@ export default function UsuariosPage() {
       <Dialog
         open={isNewUserModalOpen}
         onOpenChange={setIsNewUserModalOpen}
-        title="Cadastrar Novo Operador no CimBahia"
+        title="Cadastrar Novo Operador no CIMBAHIA"
         description="A criação de contas é exclusivamente interna e restrita à Gestão do Sistema."
         maxWidth="md"
       >

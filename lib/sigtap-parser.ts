@@ -280,7 +280,7 @@ export function processSigtapCompetency(
   // Determina competência predominante
   const competency = procedures[0]?.competency || "Competência Atual";
 
-  // Gera lista final de Medicamentos para o CimBahia
+  // Gera lista final de Medicamentos para o CIMBAHIA
   const medications: Omit<Medication, "id">[] = procedures.map((p) => {
     const compatibleCids = Array.from(procCidMap.get(p.code) || []);
     return {

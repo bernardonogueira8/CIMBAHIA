@@ -25,8 +25,15 @@ export function Header() {
     logout,
   } = useApp();
 
-  // Nas páginas de autenticação, enquanto valida a sessão, ou se não autenticado, o cabeçalho não é renderizado
-  if (!authChecked || pathname === "/" || pathname === "/login" || !isAuthenticated || !currentUser) {
+  // Nas páginas públicas ou não autenticadas, o cabeçalho restrito não é renderizado
+  if (
+    !authChecked ||
+    pathname === "/" ||
+    pathname === "/login" ||
+    pathname.startsWith("/consulta-publica") ||
+    !isAuthenticated ||
+    !currentUser
+  ) {
     return null;
   }
 
@@ -46,12 +53,12 @@ export function Header() {
     currentUser.role === "admin" || currentUser.role === "gestor"
       ? "Gestor Geral"
       : currentUser.role === "administrativo"
-      ? "Triagem Administrativa"
-      : "Farmacêutico(a)";
+        ? "Triagem Administrativa"
+        : "Farmacêutico(a)";
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-[#E5E7EB] bg-white">
-      {/* Top Bar Principal CimBahia */}
+      {/* Top Bar Principal CIMBAHIA */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Brand Logo & System Name */}
@@ -63,7 +70,7 @@ export function Header() {
               <div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-base font-bold text-[#171A20] tracking-tight">
-                    CimBahia
+                    CIMBAHIA
                   </span>
                   <span className="w-1.5 h-1.5 rounded-full bg-[#E82127]" />
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-[#5C5E62] bg-[#EEEEEE] px-1.5 py-0.2 rounded">

@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS public.cb_profiles (
 -- 3. CATÁLOGOS CLÍNICOS E TERAPÊUTICOS
 -- ==============================================================================
 
--- 3.1 Catálogo de CIDs do CimBahia e catálogos terapêuticos
+-- 3.1 Catálogo de CIDs do CIMBAHIA e catálogos terapêuticos
 CREATE TABLE IF NOT EXISTS public.cb_cids (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     code TEXT NOT NULL UNIQUE,
@@ -228,7 +228,7 @@ CREATE TABLE IF NOT EXISTS public.medication_authorized_cids (
 CREATE INDEX IF NOT EXISTS idx_med_auth_cids_code ON public.medication_authorized_cids(sigtap_code);
 CREATE INDEX IF NOT EXISTS idx_med_auth_cids_cid ON public.medication_authorized_cids(cid_code);
 
--- 3.2 Outros Medicamentos Específicos do CimBahia (Não Padronizados, Judiciais)
+-- 3.2 Outros Medicamentos Específicos do CIMBAHIA (Não Padronizados, Judiciais)
 CREATE TABLE IF NOT EXISTS public.cb_other_medications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
@@ -715,7 +715,7 @@ INSERT INTO public.cb_units (id, name, macroregion, cnes, municipality, email, p
     ('22222222-2222-2222-2222-222222222222', 'Base Regional de Saúde Juazeiro', 'Macrorregional Norte', '2801460', 'Juazeiro', 'brs.juazeiro@saude.ba.gov.br', '(74) 3611-8890', 'Av. Adolfo Viana, 520 - São Geraldo, Juazeiro - BA', true),
     ('33333333-3333-3333-3333-333333333333', 'Base Regional de Saúde Feira de Santana', 'Macrorregional Centro-Leste', '2801479', 'Feira de Santana', 'brs.feira@saude.ba.gov.br', '(75) 3602-5500', 'Av. Maria Quitéria, 1200 - Kalilândia, Feira de Santana - BA', true),
     ('44444444-4444-4444-4444-444444444444', 'Base Regional de Saúde Vitória da Conquista', 'Macrorregional Sudoeste', '2801487', 'Vitória da Conquista', 'brs.conquista@saude.ba.gov.br', '(77) 3424-8100', 'Rua Crescêncio Silveira, 80 - Centro, Vitória da Conquista - BA', true),
-    ('55555555-5555-5555-5555-555555555555', 'Central Integrada CimBahia - SESAB Sede', 'Macrorregional Leste', '2801495', 'Salvador', 'cimbahia@saude.ba.gov.br', '(71) 3115-4200', '4ª Avenida, 400 - Centro Administrativo da Bahia (CAB), Salvador - BA', true)
+    ('55555555-5555-5555-5555-555555555555', 'Central Integrada CIMBAHIA - SESAB Sede', 'Macrorregional Leste', '2801495', 'Salvador', 'cimbahia@saude.ba.gov.br', '(71) 3115-4200', '4ª Avenida, 400 - Centro Administrativo da Bahia (CAB), Salvador - BA', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- ==============================================================================

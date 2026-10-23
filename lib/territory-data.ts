@@ -246,7 +246,7 @@ export const BAHIA_BRS: Array<{ id: string; name: string; nrs: string; macroregi
   }
 ];
 
-// Mapeamento dos 417 municípios no formato oficial do modelo de domínio do CimBahia
+// Mapeamento dos 417 municípios no formato oficial do modelo de domínio do CIMBAHIA
 export const INITIAL_BAHIA_MUNICIPIOS: Municipio[] = [
   {
     "id": "mun-2900207",

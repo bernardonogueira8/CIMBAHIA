@@ -43,6 +43,7 @@ import {
 } from "../mock-data";
 import { supabase, isSupabaseConfigured } from "../supabase/client";
 import { calculatePatientAgeAtEvaluation } from "../patient-age";
+import { resolveProcessoItems } from "../processo-resolver";
 
 function generateUUID(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -302,7 +303,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== "undefined") {
       try {
         removeStoredItem("units");
-      } catch {}
+      } catch { }
     }
     const stored = getStoredOrDefault<Unit[]>("units_v3", INITIAL_UNITS);
     return mergeOfficialUnits(stored || []);
@@ -327,7 +328,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return isDemo ? INITIAL_MONTHLY_DATA : getStoredOrDefault("monthlyData", []);
   });
 
-  // CimBahia: Estados territoriais, catálogos e processos
+  // CIMBAHIA: Estados territoriais, catálogos e processos
   const [origens, setOrigens] = useState<Origem[]>(() =>
     getStoredOrDefault("origens", INITIAL_ORIGENS)
   );
@@ -484,7 +485,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setMedications(hydratedMeds);
       }
 
-      // 2. Dados Operacionais do CimBahia (Pacientes e Processos SEI da tabela cb_*)
+      // 2. Dados Operacionais do CIMBAHIA (Pacientes e Processos SEI da tabela cb_*)
       const isDemo = getStoredOrDefault("isDemoMode", false);
       if (!isDemo) {
         const { data: patsData } = await supabase
@@ -537,11 +538,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               contato_email: row.contato_email || row.email || null,
               contato_telefone: row.contato_telefone || row.telefone || null,
               paciente: patientObj,
-              paciente_idade_na_avaliacao: row.paciente_idade_na_avaliacao ?? ageCalc.idadeAnos,
-              paciente_idade_formatada: row.paciente_idade_formatada ?? ageCalc.idadeFormatada,
-              paciente_faixa_etaria: row.paciente_faixa_etaria ?? ageCalc.faixaEtaria,
-              paciente_faixa_etaria_label: row.paciente_faixa_etaria_label ?? ageCalc.faixaEtariaLabel,
-              items: row.items || [],
+              paciente_idade_na_avaliacao:
+                row.paciente_idade_na_avaliacao !== null && row.paciente_idade_na_avaliacao !== undefined
+                  ? row.paciente_idade_na_avaliacao
+                  : ageCalc.idadeAnos,
+              paciente_idade_formatada:
+                row.paciente_idade_formatada && !row.paciente_idade_formatada.toLowerCase().includes("futura")
+                  ? row.paciente_idade_formatada
+                  : ageCalc.idadeFormatada,
+              paciente_faixa_etaria: row.paciente_faixa_etaria || ageCalc.faixaEtaria,
+              paciente_faixa_etaria_label:
+                row.paciente_faixa_etaria_label && row.paciente_faixa_etaria_label !== "Não informada"
+                  ? row.paciente_faixa_etaria_label
+                  : ageCalc.faixaEtariaLabel,
+              items: resolveProcessoItems({
+                ...row,
+                items: row.items || [],
+                parecer: activeParecer,
+              }),
               parecer: activeParecer,
               historico: (row.historico || []).sort(
                 (a: any, b: any) =>
@@ -974,16 +988,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Usuário comum só tem permissão de escrita se estiver na sua própria unidade.
   const canEdit = Boolean(
     currentUser &&
-      (currentUser.role === "admin" ||
-        (Boolean(currentUser.unit_id) && currentUser.unit_id === selectedUnitId))
+    (currentUser.role === "admin" ||
+      (Boolean(currentUser.unit_id) && currentUser.unit_id === selectedUnitId))
   );
 
   // Se o usuário está inspecionando uma unidade que não é a dele (e não é admin)
   const isViewingOtherUnit = Boolean(
     currentUser &&
-      currentUser.role !== "admin" &&
-      selectedUnitId !== "all" &&
-      currentUser.unit_id !== selectedUnitId
+    currentUser.role !== "admin" &&
+    selectedUnitId !== "all" &&
+    currentUser.unit_id !== selectedUnitId
   );
 
   // Mutação: Adicionar Paciente (Gravado no Supabase + Cache Local)
@@ -1198,10 +1212,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const prfRows = data.prfs.map((prf) => ({
               id:
                 prf.id &&
-                prf.id.includes("-") &&
-                !prf.id.startsWith("prf-temp-") &&
-                !prf.id.startsWith("prf-edit-") &&
-                !prf.id.startsWith("prf-inherited-")
+                  prf.id.includes("-") &&
+                  !prf.id.startsWith("prf-temp-") &&
+                  !prf.id.startsWith("prf-edit-") &&
+                  !prf.id.startsWith("prf-inherited-")
                   ? prf.id
                   : generateUUID(),
               consultation_id: consultationId,
@@ -2124,10 +2138,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       prev.map((u) =>
         u.id === id
           ? {
-              ...u,
-              ...data,
-              updated_at: new Date().toISOString(),
-            }
+            ...u,
+            ...data,
+            updated_at: new Date().toISOString(),
+          }
           : u
       )
     );
@@ -2173,7 +2187,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           to_status: proc.status,
           user_id: currentUser?.id || "sistema",
           user_name: currentUser?.full_name || "Sistema",
-          notes: "Processo autuado no CimBahia com base no SEI.",
+          notes: "Processo autuado no CIMBAHIA com base no SEI.",
           timestamp: new Date().toISOString(),
         },
       ],
@@ -2548,10 +2562,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       parecerData.regulatory_effect === "deferido"
         ? "concluido_deferido"
         : parecerData.regulatory_effect === "indeferido"
-        ? "concluido_indeferido"
-        : parecerData.regulatory_effect === "exigencia"
-        ? "em_exigencia"
-        : "concluido_parcial";
+          ? "concluido_indeferido"
+          : parecerData.regulatory_effect === "exigencia"
+            ? "em_exigencia"
+            : "concluido_parcial";
 
     const histItem = {
       id: generateUUID(),
@@ -2665,10 +2679,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       parecerData.regulatory_effect === "deferido"
         ? "concluido_deferido"
         : parecerData.regulatory_effect === "indeferido"
-        ? "concluido_indeferido"
-        : parecerData.regulatory_effect === "exigencia"
-        ? "em_exigencia"
-        : "concluido_parcial";
+          ? "concluido_indeferido"
+          : parecerData.regulatory_effect === "exigencia"
+            ? "em_exigencia"
+            : "concluido_parcial";
 
     const histItem = {
       id: generateUUID(),
@@ -2785,7 +2799,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         restoreDemoData,
         registerUser,
 
-        // CimBahia
+        // CIMBAHIA
         origens,
         diresList,
         nucleos,

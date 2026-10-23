@@ -167,4 +167,42 @@ export function matchNormalized(
   return false;
 }
 
+const PHARMA_STOPWORDS = new Set([
+  "de", "do", "da", "dos", "das", "e", "em", "para", "com", "sem",
+  "mg", "ml", "g", "mcg", "ui", "comprimido", "comprimidos",
+  "capsula", "capsulas", "frasco", "ampola", "solucao", "injetavel",
+  "gotas", "xarope", "suspensao", "creme", "pomada", "gel", "po"
+]);
+
+/**
+ * Realiza correspondência clínica flexível e precisa para nomes de substâncias / fármacos
+ */
+export function matchSubstance(target: string | null | undefined, query: string | null | undefined): boolean {
+  if (!query || !query.trim()) return true;
+  if (!target) return false;
+
+  const normTarget = normalizeText(target);
+  const normQuery = normalizeText(query);
+
+  if (!normQuery) return true;
+  if (!normTarget) return false;
+
+  if (normTarget.includes(normQuery)) return true;
+  if (normQuery.includes(normTarget) && normTarget.length >= 3 && !normTarget.includes("medicamento avaliado")) {
+    return true;
+  }
+
+  const queryTokens = normQuery
+    .split(/[\s,/-]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3 && !PHARMA_STOPWORDS.has(t) && !/^\d+$/.test(t));
+
+  if (queryTokens.length === 0) {
+    return normTarget.includes(normQuery);
+  }
+
+  return queryTokens.every((tok) => normTarget.includes(tok));
+}
+
+
 

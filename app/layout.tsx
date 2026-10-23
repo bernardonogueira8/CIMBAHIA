@@ -20,7 +20,7 @@ const geistMono = Geist_Mono({
 export const instant = false;
 
 export const metadata: Metadata = {
-  title: "CimBahia | Central Integrada de Regulação e Pareceres Farmacêuticos",
+  title: "CIMBAHIA | Central Integrada de Regulação e Pareceres Farmacêuticos",
   description:
     "Sistema Oficial de Regulação, Triagem e Emissão de Pareceres Farmacêuticos da Bahia com Integração SEI.",
   icons: {
